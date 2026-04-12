@@ -26,5 +26,6 @@
     "tsconfig-jaid-bun": "^13.0.0",
     "typescript": "^6.0.2"
   },
-  "funding": "https://github.com/sponsors/Jaid"
+  "funding": "https://github.com/sponsors/Jaid",
+  "license": "MIT"
 }

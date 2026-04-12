@@ -1,0 +1,29 @@
+{
+  "name": "action-run-typescript",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/main.ts"
+    }
+  },
+  "imports": {
+    "#/*": "./*",
+    "#root/*": "./*",
+    "#src/*": "./src/*"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:jaidlab/action-run-typescript.git"
+  },
+  "scripts": {
+    "test": "bun test --max-concurrency 1 ./test"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.12",
+    "eslint": "^10.2.0",
+    "eslint-config-jaid": "^25.0.0",
+    "tsconfig-jaid-node": "^13.0.0",
+    "typescript": "^6.0.2"
+  }
+}

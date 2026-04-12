@@ -2,6 +2,12 @@
   "name": "action-run-typescript",
   "version": "0.1.0",
   "type": "module",
+  "funding": "https://github.com/sponsors/Jaid",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jaidlab/action-run-typescript.git"
+  },
   "exports": {
     ".": {
       "default": "./src/main.ts"
@@ -12,10 +18,6 @@
     "#root/*": "./*",
     "#src/*": "./src/*"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/jaidlab/action-run-typescript.git"
-  },
   "scripts": {
     "test": "bun test --max-concurrency 1 ./test"
   },
@@ -25,7 +27,5 @@
     "eslint-config-jaid": "^25.0.0",
     "tsconfig-jaid-bun": "^13.0.0",
     "typescript": "^6.0.2"
-  },
-  "funding": "https://github.com/sponsors/Jaid",
-  "license": "MIT"
+  }
 }

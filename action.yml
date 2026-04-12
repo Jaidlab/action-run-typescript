@@ -1,0 +1,35 @@
+name: run TypeScript
+description: Run inline TypeScript in GitHub Actions using Bun.
+author: Jaid
+inputs:
+  code:
+    description: TypeScript code to execute.
+    required: true
+  steps:
+    description: Optional JSON-serialized caller workflow `steps` context, usually `${{ toJson(steps) }}`.
+    required: false
+    default: ''
+  github-token:
+    description: GitHub token used for best-effort workflow job step lookup.
+    required: false
+    default: ${{ github.token }}
+runs:
+  using: composite
+  steps:
+  - name: setup Bun
+    uses: oven-sh/setup-bun@v2.2.0
+    with:
+      bun-version: latest
+  - name: run TypeScript
+    shell: pwsh
+    env:
+      ACTION_RUN_TYPESCRIPT_ACTION_PATH: ${{ github.action_path }}
+      ACTION_RUN_TYPESCRIPT_CODE: ${{ inputs.code }}
+      ACTION_RUN_TYPESCRIPT_GITHUB_CONTEXT: ${{ toJson(github) }}
+      ACTION_RUN_TYPESCRIPT_GITHUB_TOKEN: ${{ inputs.github-token }}
+      ACTION_RUN_TYPESCRIPT_JOB_CONTEXT: ${{ toJson(job) }}
+      ACTION_RUN_TYPESCRIPT_MATRIX_CONTEXT: ${{ toJson(matrix) }}
+      ACTION_RUN_TYPESCRIPT_RUNNER_CONTEXT: ${{ toJson(runner) }}
+      ACTION_RUN_TYPESCRIPT_STEPS_CONTEXT: ${{ inputs.steps }}
+      ACTION_RUN_TYPESCRIPT_STRATEGY_CONTEXT: ${{ toJson(strategy) }}
+    run: bun --bun "$env:ACTION_RUN_TYPESCRIPT_ACTION_PATH/src/main.ts"

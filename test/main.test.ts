@@ -15,6 +15,7 @@ interface ScriptResult {
   readonly imported: number
   readonly jobStatus: string
   readonly matrixNode: string
+  readonly packageName: string
   readonly runnerOs: string
   readonly stepValue: string
 }
@@ -27,15 +28,18 @@ describe('action-run-typescript', () => {
   it('should run inline TypeScript with contextual bindings and relative imports', async () => {
     const workspace = await createWorkspace()
     try {
+      await writeFile(path.join(workspace, 'package.json'), JSON.stringify({name: 'workspace-package'}, null, 2))
       await writeFile(path.join(workspace, 'value.ts'), 'export default 41\n')
       const outputFile = path.join(workspace, 'result.json')
       await runAction(makeEnvironment({
-        ACTION_RUN_TYPESCRIPT_CODE: `import value from './value.ts'
+        ACTION_RUN_TYPESCRIPT_CODE: `import packageJson from './package.json'
+import value from './value.ts'
 await Bun.write('result.json', JSON.stringify({
   githubAction: github.action,
   imported: value,
   jobStatus: job.status,
   matrixNode: matrix.node,
+  packageName: packageJson.name,
   runnerOs: runner.os,
   stepValue: steps.prepare.outputs.value,
 }, null, 2))
@@ -57,6 +61,7 @@ await Bun.write('result.json', JSON.stringify({
         imported: 41,
         jobStatus: 'success',
         matrixNode: '22',
+        packageName: 'workspace-package',
         runnerOs: 'Linux',
         stepValue: '42',
       })
@@ -116,6 +121,28 @@ core.summary.write('# summary')
         }),
         GITHUB_WORKSPACE: workspace,
       }))).rejects.toThrow('Inline TypeScript exited with code 1.')
+    } finally {
+      await rm(workspace, {
+        force: true,
+        recursive: true,
+      })
+    }
+  })
+  it('should reject static import statements outside the import block', async () => {
+    const workspace = await createWorkspace()
+    try {
+      await writeFile(path.join(workspace, 'value.ts'), 'export default 41\n')
+      await expect(runAction(makeEnvironment({
+        ACTION_RUN_TYPESCRIPT_CODE: `console.log('before')
+import value from './value.ts'
+console.log(value)
+`,
+        ACTION_RUN_TYPESCRIPT_GITHUB_CONTEXT: JSON.stringify({
+          repository: 'Jaidlab/action-run-typescript',
+          run_id: 1,
+        }),
+        GITHUB_WORKSPACE: workspace,
+      }))).rejects.toThrow('Static import statements must be placed at the top of the inline TypeScript script.')
     } finally {
       await rm(workspace, {
         force: true,

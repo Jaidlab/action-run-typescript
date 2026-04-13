@@ -56,7 +56,7 @@ If you do not pass `steps`, the action still tries to populate `steps` and `work
 
 ## Relative imports
 
-Because the generated script is written into the workspace root, relative imports behave as expected:
+The inline script is evaluated as a workspace-rooted module, so relative imports behave as expected:
 
 ```yml
 - uses: Jaidlab/action-run-typescript@v0.1.0
@@ -65,6 +65,8 @@ Because the generated script is written into the workspace root, relative import
       import packageJson from './package.json'
       console.dir(packageJson)
 ```
+
+Keep static `import` statements at the top of the inline script.
 
 ## `core` helper
 

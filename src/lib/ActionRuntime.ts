@@ -1,15 +1,12 @@
 import type {GitHubContext, WorkflowJob} from './github/getCurrentWorkflowJob.ts'
 
-// eslint-disable-next-line typescript/no-restricted-imports
-import {rm} from 'node:fs/promises'
 import path from 'node:path'
 
-import {createContextModuleContent} from './context/createContextModuleContent.ts'
-import {createScriptModuleContent} from './context/createScriptModuleContent.ts'
 import {getCurrentWorkflowJob} from './github/getCurrentWorkflowJob.ts'
 import {toWorkflowStepsFallback} from './github/toWorkflowStepsFallback.ts'
 import {parseJsonString} from './parseJsonString.ts'
 import {toForwardSlashPath} from './toForwardSlashPath.ts'
+import {VmModuleRunner} from './vm/VmModuleRunner.ts'
 
 export interface ActionRuntimeBindings {
   readonly github: unknown
@@ -57,8 +54,20 @@ export class ActionRuntime {
     }
   }
 
-  getChildProcessEnvironment(token = this.getGitHubToken()): MutableActionRuntimeEnvironment {
-    const childEnvironment: MutableActionRuntimeEnvironment = {
+  getCode() {
+    const code = this.environment.ACTION_RUN_TYPESCRIPT_CODE
+    if (code === undefined) {
+      throw new Error('Missing ACTION_RUN_TYPESCRIPT_CODE.')
+    }
+    return code
+  }
+
+  getContext<Value>(name: keyof ActionRuntimeEnvironment & string) {
+    return parseJsonString<Value>(this.environment[name], name)
+  }
+
+  getExecutionEnvironment(token = this.getGitHubToken()): MutableActionRuntimeEnvironment {
+    const executionEnvironment: MutableActionRuntimeEnvironment = {
       ...(process.env as MutableActionRuntimeEnvironment),
       ...this.environment,
     }
@@ -73,24 +82,12 @@ export class ActionRuntime {
       'ACTION_RUN_TYPESCRIPT_STEPS_CONTEXT',
       'ACTION_RUN_TYPESCRIPT_STRATEGY_CONTEXT',
     ] as const) {
-      delete childEnvironment[name]
+      delete executionEnvironment[name]
     }
-    if (token && !childEnvironment.GITHUB_TOKEN) {
-      childEnvironment.GITHUB_TOKEN = token
+    if (token && !executionEnvironment.GITHUB_TOKEN) {
+      executionEnvironment.GITHUB_TOKEN = token
     }
-    return childEnvironment
-  }
-
-  getCode() {
-    const code = this.environment.ACTION_RUN_TYPESCRIPT_CODE
-    if (code === undefined) {
-      throw new Error('Missing ACTION_RUN_TYPESCRIPT_CODE.')
-    }
-    return code
-  }
-
-  getContext<Value>(name: keyof ActionRuntimeEnvironment & string) {
-    return parseJsonString<Value>(this.environment[name], name)
+    return executionEnvironment
   }
 
   getGithubContext(): GitHubContext {
@@ -119,30 +116,12 @@ export class ActionRuntime {
       token,
       runnerName: this.environment.RUNNER_NAME,
     })
-    const bindings = this.getBindings(workflowJob)
-    const suffix = crypto.randomUUID().replaceAll('-', '')
-    const contextFile = toForwardSlashPath(path.join(this.workspace, `.action-run-typescript-context-${suffix}.ts`))
-    const scriptFile = toForwardSlashPath(path.join(this.workspace, `.action-run-typescript-script-${suffix}.tsx`))
-    await Bun.write(contextFile, createContextModuleContent(bindings))
-    await Bun.write(scriptFile, createScriptModuleContent(path.basename(contextFile), this.getCode()))
-    try {
-      const subprocess = Bun.spawn({
-        cmd: ['bun', scriptFile],
-        cwd: this.workspace,
-        env: this.getChildProcessEnvironment(token),
-        stdin: 'inherit',
-        stdout: 'inherit',
-        stderr: 'inherit',
-      })
-      const exitCode = await subprocess.exited
-      if (exitCode !== 0) {
-        throw new Error(`Inline TypeScript exited with code ${exitCode}.`)
-      }
-    } finally {
-      await Promise.allSettled([
-        rm(scriptFile, {force: true}),
-        rm(contextFile, {force: true}),
-      ])
-    }
+    const runner = new VmModuleRunner({
+      bindings: this.getBindings(workflowJob),
+      code: this.getCode(),
+      environment: this.getExecutionEnvironment(token),
+      workspace: this.workspace,
+    })
+    await runner.run()
   }
 }

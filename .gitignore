@@ -21,4 +21,5 @@ node_modules/
 
 # GitHub Actions
 
-!/dist/action/*.js
+!/dist/
+!/dist/action.js

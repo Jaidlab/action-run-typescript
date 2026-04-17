@@ -1,6 +1,6 @@
 # action-run-typescript
 
-Run inline TypeScript in GitHub Actions using Bun.
+Run inline TypeScript in GitHub Actions using Node.js 24.
 
 ## Usage
 
@@ -14,13 +14,13 @@ jobs:
         with:
           code: |-
             console.log('hi')
-            console.dir({env: Bun.env})
+            console.dir({env: process.env})
             console.dir({github, steps})
 ```
 
 ## Available bindings
 
-Your inline code runs in a Bun-powered ESM module from the workflow workspace root.
+Your inline code runs in a dedicated Node.js 24 child process from the workflow workspace root. The action itself is shipped as a bundled JavaScript action at `dist/action.js`; Bun is only used to build this repository.
 
 These bindings are available without importing anything:
 
@@ -32,11 +32,11 @@ These bindings are available without importing anything:
 - `steps` – either the JSON passed through the action input or a best-effort fallback derived from the workflow jobs API
 - `workflowJob` – best-effort metadata for the current workflow job, including its step list when available
 - `core` – a lightweight helper inspired by `@actions/core`
-- `Bun`, `fetch`, `console`, `process` and everything else normally available in Bun
+- standard Node globals such as `fetch`, `console`, `process`, `Buffer`, `URL` and friends
 
 ## Passing the real `steps` context
 
-GitHub does not expose the caller workflow’s `steps` context directly to composite actions. If you want the full context, including step outputs, pass it explicitly:
+GitHub does not expose the caller workflow’s `steps` context directly to JavaScript actions. If you want the full context, including step outputs, pass it explicitly:
 
 ```yml
 jobs:
@@ -66,7 +66,7 @@ The inline script is evaluated as a workspace-rooted module, so relative imports
       console.dir(packageJson)
 ```
 
-Keep static `import` statements at the top of the inline script.
+Supported local imports include `.ts`, `.mts`, `.cts`, `.js`, `.mjs` and `.json`. JSON imports do not require import assertions. TSX/JSX is intentionally not supported.
 
 ## `core` helper
 
@@ -93,6 +93,7 @@ The injected `core` object supports a practical subset of `@actions/core`:
 
 ## Notes
 
-- The action installs the latest Bun automatically.
+- The inline script is evaluated through `vm.SourceTextModule` in a dedicated child Node process started with `--experimental-vm-modules`.
 - `GITHUB_TOKEN` is exposed to the script environment when available.
 - The script runs from the workflow workspace root, not from the action repository.
+- No Bun runtime is required in your workflow.

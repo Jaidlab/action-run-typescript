@@ -1,3 +1,8 @@
 {
-  "extends": "./node_modules/tsconfig-jaid-bun/base.json"
+  "extends": "./node_modules/tsconfig-jaid-bun/base.json",
+  "compilerOptions": {
+    "lib": ["esnext", "dom"],
+    "types": ["bun-types", "node"]
+  },
+  "exclude": ["dist", "node_modules", "out"]
 }

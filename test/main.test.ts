@@ -1,10 +1,11 @@
 /* eslint-disable typescript/no-restricted-imports */
 import type {ActionRuntimeEnvironment} from '../src/lib/ActionRuntime.ts'
 
-import {describe, expect, it} from 'bun:test'
+import assert from 'node:assert/strict'
 import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import {describe, it} from 'node:test'
 
 import {getCurrentWorkflowJob} from '../src/lib/github/getCurrentWorkflowJob.ts'
 import {toForwardSlashPath} from '../src/lib/toForwardSlashPath.ts'
@@ -32,9 +33,10 @@ describe('action-run-typescript', () => {
       await writeFile(path.join(workspace, 'value.ts'), 'export default 41\n')
       const outputFile = path.join(workspace, 'result.json')
       await runAction(makeEnvironment({
-        ACTION_RUN_TYPESCRIPT_CODE: `import packageJson from './package.json'
+        ACTION_RUN_TYPESCRIPT_CODE: `import {writeFile} from 'node:fs/promises'
+import packageJson from './package.json'
 import value from './value.ts'
-await Bun.write('result.json', JSON.stringify({
+await writeFile('result.json', JSON.stringify({
   githubAction: github.action,
   imported: value,
   jobStatus: job.status,
@@ -56,7 +58,7 @@ await Bun.write('result.json', JSON.stringify({
         GITHUB_WORKSPACE: workspace,
       }))
       const result = JSON.parse(await readFile(outputFile, 'utf8')) as ScriptResult
-      expect(result).toEqual({
+      assert.deepEqual(result, {
         githubAction: 'test-action',
         imported: 41,
         jobStatus: 'success',
@@ -98,11 +100,11 @@ core.summary.write('# summary')
         GITHUB_STEP_SUMMARY: summaryFile,
         GITHUB_WORKSPACE: workspace,
       }))
-      expect(await readFile(outputFile, 'utf8')).toBe('answer=42\n')
-      expect(await readFile(environmentFile, 'utf8')).toBe('COLOR=blue\n')
-      expect(await readFile(pathFile, 'utf8')).toBe('./bin\n')
-      expect(await readFile(stateFile, 'utf8')).toBe('stateful={"enabled":true}\n')
-      expect(await readFile(summaryFile, 'utf8')).toBe('# summary')
+      assert.equal(await readFile(outputFile, 'utf8'), 'answer=42\n')
+      assert.equal(await readFile(environmentFile, 'utf8'), 'COLOR=blue\n')
+      assert.equal(await readFile(pathFile, 'utf8'), './bin\n')
+      assert.equal(await readFile(stateFile, 'utf8'), 'stateful={"enabled":true}\n')
+      assert.equal(await readFile(summaryFile, 'utf8'), '# summary')
     } finally {
       await rm(workspace, {
         force: true,
@@ -113,14 +115,14 @@ core.summary.write('# summary')
   it('should fail the action when core.setFailed is used', async () => {
     const workspace = await createWorkspace()
     try {
-      await expect(runAction(makeEnvironment({
+      await assert.rejects(runAction(makeEnvironment({
         ACTION_RUN_TYPESCRIPT_CODE: "core.setFailed('broken')\n",
         ACTION_RUN_TYPESCRIPT_GITHUB_CONTEXT: JSON.stringify({
           repository: 'Jaidlab/action-run-typescript',
           run_id: 1,
         }),
         GITHUB_WORKSPACE: workspace,
-      }))).rejects.toThrow('Inline TypeScript exited with code 1.')
+      })), /Inline TypeScript exited with code 1\./)
     } finally {
       await rm(workspace, {
         force: true,
@@ -128,21 +130,24 @@ core.summary.write('# summary')
       })
     }
   })
-  it('should reject static import statements outside the import block', async () => {
+  it('should allow static imports after other top-level statements', async () => {
     const workspace = await createWorkspace()
     try {
       await writeFile(path.join(workspace, 'value.ts'), 'export default 41\n')
-      await expect(runAction(makeEnvironment({
+      const outputFile = path.join(workspace, 'value.txt')
+      await runAction(makeEnvironment({
         ACTION_RUN_TYPESCRIPT_CODE: `console.log('before')
+import {writeFile} from 'node:fs/promises'
 import value from './value.ts'
-console.log(value)
+await writeFile('value.txt', String(value))
 `,
         ACTION_RUN_TYPESCRIPT_GITHUB_CONTEXT: JSON.stringify({
           repository: 'Jaidlab/action-run-typescript',
           run_id: 1,
         }),
         GITHUB_WORKSPACE: workspace,
-      }))).rejects.toThrow('Static import statements must be placed at the top of the inline TypeScript script.')
+      }))
+      assert.equal(await readFile(outputFile, 'utf8'), '41')
     } finally {
       await rm(workspace, {
         force: true,
@@ -173,7 +178,7 @@ describe('getCurrentWorkflowJob', () => {
       },
       token: 'token',
     })
-    expect(job?.name).toBe('test')
+    assert.equal(job?.name, 'test')
   })
   it('should resolve the current job by runner name when job names are ambiguous', async () => {
     const job = await getCurrentWorkflowJob({
@@ -199,6 +204,6 @@ describe('getCurrentWorkflowJob', () => {
       runnerName: 'runner-b',
       token: 'token',
     })
-    expect(job?.runner_name).toBe('runner-b')
+    assert.equal(job?.runner_name, 'runner-b')
   })
 })

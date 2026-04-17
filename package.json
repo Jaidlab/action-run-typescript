@@ -10,7 +10,7 @@
   },
   "exports": {
     ".": {
-      "default": "./src/main.ts"
+      "default": "./dist/action.js"
     }
   },
   "imports": {
@@ -19,7 +19,8 @@
     "#src/*": "./src/*"
   },
   "scripts": {
-    "test": "bun test --max-concurrency 1 ./test"
+    "build": "bun ./scripts/build.ts",
+    "test": "node --test --test-concurrency=1 ./test/*.test.ts"
   },
   "devDependencies": {
     "bun-types": "^1.3.12",

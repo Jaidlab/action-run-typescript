@@ -5,33 +5,13 @@ inputs:
   code:
     description: TypeScript code to execute.
     required: true
-  steps:
-    description: Optional JSON-serialized caller workflow `steps` context. Pass it explicitly from the workflow when needed.
+  globals:
+    description: Optional JSON5 object. Each top-level field becomes a global variable before your TypeScript runs.
     required: false
   github-token:
     description: GitHub token used for best-effort workflow job step lookup.
     required: false
     default: ${{ github.token }}
-  github-context:
-    description: Internal. JSON-serialized `github` context.
-    required: false
-    default: ${{ toJson(github) }}
-  job-context:
-    description: Internal. JSON-serialized `job` context.
-    required: false
-    default: ${{ toJson(job) }}
-  matrix-context:
-    description: Internal. JSON-serialized `matrix` context.
-    required: false
-    default: ${{ toJson(matrix) }}
-  runner-context:
-    description: Internal. JSON-serialized `runner` context.
-    required: false
-    default: ${{ toJson(runner) }}
-  strategy-context:
-    description: Internal. JSON-serialized `strategy` context.
-    required: false
-    default: ${{ toJson(strategy) }}
 runs:
   using: node24
   main: dist/action.js

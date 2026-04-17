@@ -1,4 +1,4 @@
-/* eslint-disable typescript/no-restricted-imports */
+/* eslint-disable typescript/no-floating-promises, typescript/no-restricted-imports */
 import type {ActionRuntimeEnvironment} from '../src/lib/ActionRuntime.ts'
 
 import assert from 'node:assert/strict'
@@ -12,9 +12,11 @@ import {toForwardSlashPath} from '../src/lib/toForwardSlashPath.ts'
 import runAction from '../src/main.ts'
 
 interface ScriptResult {
+  readonly customValue: string
   readonly githubAction: string
+  readonly githubRepository: string
   readonly imported: number
-  readonly jobStatus: string
+  readonly jobId: string
   readonly matrixNode: string
   readonly packageName: string
   readonly runnerOs: string
@@ -25,43 +27,49 @@ const makeEnvironment = (overrides: ActionRuntimeEnvironment = {}): ActionRuntim
   ...(process.env as ActionRuntimeEnvironment),
   ...overrides,
 })
-describe('action-run-typescript', () => {
-  it('should run inline TypeScript with contextual bindings and relative imports', async () => {
+void describe('action-run-typescript', () => {
+  void it('should run inline TypeScript with contextual bindings, globals and relative imports', async () => {
     const workspace = await createWorkspace()
     try {
       await writeFile(path.join(workspace, 'package.json'), JSON.stringify({name: 'workspace-package'}, null, 2))
       await writeFile(path.join(workspace, 'value.ts'), 'export default 41\n')
       const outputFile = path.join(workspace, 'result.json')
       await runAction(makeEnvironment({
-        ACTION_RUN_TYPESCRIPT_CODE: `import {writeFile} from 'node:fs/promises'
+        INPUT_CODE: `import {writeFile} from 'node:fs/promises'
 import packageJson from './package.json'
 import value from './value.ts'
 await writeFile('result.json', JSON.stringify({
+  customValue,
   githubAction: github.action,
+  githubRepository: github.repository,
   imported: value,
-  jobStatus: job.status,
+  jobId: job.id,
   matrixNode: matrix.node,
   packageName: packageJson.name,
   runnerOs: runner.os,
   stepValue: steps.prepare.outputs.value,
 }, null, 2))
 `,
-        ACTION_RUN_TYPESCRIPT_GITHUB_CONTEXT: JSON.stringify({
-          action: 'test-action',
-          repository: 'Jaidlab/action-run-typescript',
-          run_id: 1,
-        }),
-        ACTION_RUN_TYPESCRIPT_JOB_CONTEXT: JSON.stringify({status: 'success'}),
-        ACTION_RUN_TYPESCRIPT_MATRIX_CONTEXT: JSON.stringify({node: '22'}),
-        ACTION_RUN_TYPESCRIPT_RUNNER_CONTEXT: JSON.stringify({os: 'Linux'}),
-        ACTION_RUN_TYPESCRIPT_STEPS_CONTEXT: JSON.stringify({prepare: {outputs: {value: '42'}}}),
+        INPUT_GLOBALS: `{
+  customValue: 'hello',
+  matrix: {node: '22'},
+  steps: {prepare: {outputs: {value: '42'}}},
+  // json5 comment support
+}`,
+        GITHUB_ACTION: 'test-action',
+        GITHUB_JOB: 'test-job',
+        GITHUB_REPOSITORY: 'Jaidlab/action-run-typescript',
+        GITHUB_RUN_ID: '1',
         GITHUB_WORKSPACE: workspace,
+        RUNNER_OS: 'Linux',
       }))
       const result = JSON.parse(await readFile(outputFile, 'utf8')) as ScriptResult
       assert.deepEqual(result, {
+        customValue: 'hello',
         githubAction: 'test-action',
+        githubRepository: 'Jaidlab/action-run-typescript',
         imported: 41,
-        jobStatus: 'success',
+        jobId: 'test-job',
         matrixNode: '22',
         packageName: 'workspace-package',
         runnerOs: 'Linux',
@@ -74,7 +82,7 @@ await writeFile('result.json', JSON.stringify({
       })
     }
   })
-  it('should expose GitHub Actions file helpers through core', async () => {
+  void it('should expose GitHub Actions file helpers through core', async () => {
     const workspace = await createWorkspace()
     try {
       const outputFile = path.join(workspace, 'github-output.txt')
@@ -83,19 +91,17 @@ await writeFile('result.json', JSON.stringify({
       const stateFile = path.join(workspace, 'github-state.txt')
       const summaryFile = path.join(workspace, 'github-step-summary.md')
       await runAction(makeEnvironment({
-        ACTION_RUN_TYPESCRIPT_CODE: `core.setOutput('answer', 42)
+        INPUT_CODE: `core.setOutput('answer', 42)
 core.exportVariable('COLOR', 'blue')
 core.addPath('./bin')
 core.saveState('stateful', {enabled: true})
 core.summary.write('# summary')
 `,
-        ACTION_RUN_TYPESCRIPT_GITHUB_CONTEXT: JSON.stringify({
-          repository: 'Jaidlab/action-run-typescript',
-          run_id: 1,
-        }),
         GITHUB_ENV: environmentFile,
         GITHUB_OUTPUT: outputFile,
         GITHUB_PATH: pathFile,
+        GITHUB_REPOSITORY: 'Jaidlab/action-run-typescript',
+        GITHUB_RUN_ID: '1',
         GITHUB_STATE: stateFile,
         GITHUB_STEP_SUMMARY: summaryFile,
         GITHUB_WORKSPACE: workspace,
@@ -112,15 +118,13 @@ core.summary.write('# summary')
       })
     }
   })
-  it('should fail the action when core.setFailed is used', async () => {
+  void it('should fail the action when core.setFailed is used', async () => {
     const workspace = await createWorkspace()
     try {
       await assert.rejects(runAction(makeEnvironment({
-        ACTION_RUN_TYPESCRIPT_CODE: "core.setFailed('broken')\n",
-        ACTION_RUN_TYPESCRIPT_GITHUB_CONTEXT: JSON.stringify({
-          repository: 'Jaidlab/action-run-typescript',
-          run_id: 1,
-        }),
+        INPUT_CODE: "core.setFailed('broken')\n",
+        GITHUB_REPOSITORY: 'Jaidlab/action-run-typescript',
+        GITHUB_RUN_ID: '1',
         GITHUB_WORKSPACE: workspace,
       })), /Inline TypeScript exited with code 1\./)
     } finally {
@@ -130,21 +134,19 @@ core.summary.write('# summary')
       })
     }
   })
-  it('should allow static imports after other top-level statements', async () => {
+  void it('should allow static imports after other top-level statements', async () => {
     const workspace = await createWorkspace()
     try {
       await writeFile(path.join(workspace, 'value.ts'), 'export default 41\n')
       const outputFile = path.join(workspace, 'value.txt')
       await runAction(makeEnvironment({
-        ACTION_RUN_TYPESCRIPT_CODE: `console.log('before')
+        INPUT_CODE: `console.log('before')
 import {writeFile} from 'node:fs/promises'
 import value from './value.ts'
 await writeFile('value.txt', String(value))
 `,
-        ACTION_RUN_TYPESCRIPT_GITHUB_CONTEXT: JSON.stringify({
-          repository: 'Jaidlab/action-run-typescript',
-          run_id: 1,
-        }),
+        GITHUB_REPOSITORY: 'Jaidlab/action-run-typescript',
+        GITHUB_RUN_ID: '1',
         GITHUB_WORKSPACE: workspace,
       }))
       assert.equal(await readFile(outputFile, 'utf8'), '41')
@@ -156,8 +158,8 @@ await writeFile('value.txt', String(value))
     }
   })
 })
-describe('getCurrentWorkflowJob', () => {
-  it('should resolve the current job by exact GitHub job name', async () => {
+void describe('getCurrentWorkflowJob', () => {
+  void it('should resolve the current job by exact GitHub job name', async () => {
     const job = await getCurrentWorkflowJob({
       fetch: async () => Response.json({
         jobs: [
@@ -180,7 +182,7 @@ describe('getCurrentWorkflowJob', () => {
     })
     assert.equal(job?.name, 'test')
   })
-  it('should resolve the current job by runner name when job names are ambiguous', async () => {
+  void it('should resolve the current job by runner name when job names are ambiguous', async () => {
     const job = await getCurrentWorkflowJob({
       fetch: async () => Response.json({
         jobs: [

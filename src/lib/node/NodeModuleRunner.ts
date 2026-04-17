@@ -1,16 +1,10 @@
-import type {ActionRuntimeBindings} from '../ActionRuntimeBindings.ts'
-
 import {spawn} from 'node:child_process'
 import path from 'node:path'
 
-import {ACTION_RUN_TYPESCRIPT_INTERNAL_BINDINGS,
-  ACTION_RUN_TYPESCRIPT_INTERNAL_CODE,
-  ACTION_RUN_TYPESCRIPT_INTERNAL_MODE} from './internalEnvironment.ts'
+import {ACTION_RUN_TYPESCRIPT_INTERNAL_MODE} from './internalEnvironment.ts'
 
 export interface NodeModuleRunnerOptions {
   readonly actionPath: string
-  readonly bindings: ActionRuntimeBindings
-  readonly code: string
   readonly environment: Record<string, string | undefined>
   readonly workspace: string
 }
@@ -35,8 +29,6 @@ export class NodeModuleRunner {
       env: createSpawnEnvironment({
         ...this.options.environment,
         [ACTION_RUN_TYPESCRIPT_INTERNAL_MODE]: '1',
-        [ACTION_RUN_TYPESCRIPT_INTERNAL_BINDINGS]: JSON.stringify(this.options.bindings),
-        [ACTION_RUN_TYPESCRIPT_INTERNAL_CODE]: this.options.code,
       }),
       stdio: 'inherit',
     })

@@ -1,7 +1,6 @@
 import type {ActionRuntimeEnvironment} from './lib/ActionRuntime.ts'
 
 import path from 'node:path'
-import {fileURLToPath} from 'node:url'
 
 import {ActionRuntime} from './lib/ActionRuntime.ts'
 import {isInternalNodeActionEnvironment, runInternalNodeAction} from './lib/node/runInternalNodeAction.ts'

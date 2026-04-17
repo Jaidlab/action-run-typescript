@@ -1,26 +1,36 @@
 import type {ActionRuntimeBindings} from '../ActionRuntimeBindings.ts'
+import type {WorkflowJob} from '../github/getCurrentWorkflowJob.ts'
+import type {InputOptions} from '@actions/core'
 
-import {webcrypto} from 'node:crypto'
 import {existsSync, readFileSync, statSync} from 'node:fs'
 import * as nodeModule from 'node:module'
 import path from 'node:path'
 import {fileURLToPath, pathToFileURL} from 'node:url'
 import vm from 'node:vm'
 
-import {createContextModuleContent} from '../context/createContextModuleContent.ts'
-import {createScriptModuleContent} from '../context/createScriptModuleContent.ts'
-import {parseJsonString} from '../parseJsonString.ts'
-import {ACTION_RUN_TYPESCRIPT_INTERNAL_BINDINGS,
-  ACTION_RUN_TYPESCRIPT_INTERNAL_CODE,
-  ACTION_RUN_TYPESCRIPT_INTERNAL_MODE,
+import * as actionCore from '@actions/core'
+import * as actionGithub from '@actions/github'
+import json5 from 'json5'
+
+import {createCore} from '../context/createCore.ts'
+import {actionInputNames,
+  deprecatedContextEnvironmentNames,
+  getEnvironmentValue,
+  legacyActionRuntimeInputEnvironmentNames,
+  normalizeEnvironmentValue,
+  toInputEnvironmentName} from '../environment.ts'
+import {getCurrentWorkflowJob} from '../github/getCurrentWorkflowJob.ts'
+import {toActionRuntimeGitHubContext} from '../github/toActionRuntimeGitHubContext.ts'
+import {toWorkflowStepsFallback} from '../github/toWorkflowStepsFallback.ts'
+import {ACTION_RUN_TYPESCRIPT_INTERNAL_MODE,
   internalEnvironmentNames} from './internalEnvironment.ts'
 
 const {createRequire, isBuiltin} = nodeModule
 const supportedLocalExtensions = ['.ts', '.mts', '.cts', '.js', '.mjs', '.json'] as const
 const supportedLocalExtensionList = supportedLocalExtensions.join(', ')
 const unsupportedJsxExtensions = new Set(['.tsx', '.jsx'])
-const contextModuleIdentifier = 'action-run-typescript:context'
 
+type GlobalRecord = Record<PropertyKey, unknown>
 type ModuleInstance = vm.SourceTextModule | vm.SyntheticModule
 type MutableEnvironment = Record<string, string | undefined>
 
@@ -66,8 +76,25 @@ const createModuleSourceError = (phase: 'compile' | 'transform', error: unknown,
   }
   return new Error(`Failed to ${phase} module ${label}.`, {cause: error})
 }
-const createExecutionContext = () => {
-  const sandbox = Object.create(null)
+const defineGlobalValue = (target: object, name: PropertyKey, value: unknown) => {
+  Reflect.defineProperty(target, name, {
+    configurable: true,
+    enumerable: true,
+    value,
+    writable: true,
+  })
+}
+const createGlobalValuesRecord = (...sources: ReadonlyArray<Record<string, unknown>>) => {
+  const record = Object.create(null) as Record<string, unknown>
+  for (const source of sources) {
+    for (const [name, value] of Object.entries(source)) {
+      defineGlobalValue(record, name, value)
+    }
+  }
+  return record
+}
+const createExecutionContext = (globalValues: Record<string, unknown>) => {
+  const sandbox = Object.create(null) as GlobalRecord
   for (const key of Reflect.ownKeys(globalThis)) {
     if (key === 'crypto' || key === 'global' || key === 'globalThis' || key === 'self') {
       continue
@@ -76,6 +103,9 @@ const createExecutionContext = () => {
     if (descriptor) {
       Reflect.defineProperty(sandbox, key, descriptor)
     }
+  }
+  for (const [name, value] of Object.entries(globalValues)) {
+    defineGlobalValue(sandbox, name, value)
   }
   Reflect.defineProperty(sandbox, 'global', {
     configurable: true,
@@ -98,25 +128,130 @@ const createExecutionContext = () => {
   Reflect.defineProperty(sandbox, 'crypto', {
     configurable: true,
     enumerable: false,
-    value: globalThis.crypto ?? webcrypto,
+    value: globalThis.crypto,
     writable: true,
   })
   return vm.createContext(sandbox)
 }
-const getRequiredEnvironmentValue = (environment: MutableEnvironment, name: string) => {
-  const value = environment[name]
-  if (value === undefined) {
-    throw new Error(`Missing internal environment variable ${name}.`)
+const getActionInput = (name: string, options?: InputOptions) => normalizeEnvironmentValue(actionCore.getInput(name, options))
+const getCode = (environment: MutableEnvironment) => {
+  const code = getActionInput('code', {trimWhitespace: false}) ?? getEnvironmentValue(environment, 'ACTION_RUN_TYPESCRIPT_CODE')
+  if (code === undefined) {
+    throw new Error('Missing action input "code".')
   }
-  return value
+  return code
 }
-const stripInternalEnvironmentValues = (environment: MutableEnvironment) => {
-  for (const name of internalEnvironmentNames) {
+const getGitHubToken = (environment: MutableEnvironment) => getActionInput('github-token', {trimWhitespace: false})
+  ?? getEnvironmentValue(environment, 'ACTION_RUN_TYPESCRIPT_GITHUB_TOKEN', 'GITHUB_TOKEN')
+const parseGlobals = (environment: MutableEnvironment) => {
+  const rawGlobals = getActionInput('globals', {trimWhitespace: false}) ?? getEnvironmentValue(environment, 'ACTION_RUN_TYPESCRIPT_GLOBALS')
+  if (rawGlobals === undefined || rawGlobals.trim() === '') {
+    return {}
+  }
+  let parsed: unknown
+  try {
+    parsed = json5.parse(rawGlobals)
+  } catch (error) {
+    throw new Error('Failed to parse action input "globals".', {cause: error})
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new TypeError('Action input "globals" must evaluate to an object.')
+  }
+  return parsed as Record<string, unknown>
+}
+const setGitHubTokenEnvironmentValue = (environment: MutableEnvironment, token?: string) => {
+  if (!token) {
+    return
+  }
+  if (!environment.GITHUB_TOKEN) {
+    environment.GITHUB_TOKEN = token
+  }
+  if (!process.env.GITHUB_TOKEN) {
+    process.env.GITHUB_TOKEN = token
+  }
+}
+const stripRuntimeEnvironmentValues = (environment: MutableEnvironment) => {
+  for (const name of [
+    ...internalEnvironmentNames,
+    ...deprecatedContextEnvironmentNames,
+    ...legacyActionRuntimeInputEnvironmentNames,
+    ...actionInputNames.map(toInputEnvironmentName),
+  ]) {
     delete environment[name]
   }
 }
-const toFileIdentifierLabel = (identifier: string) => (identifier.startsWith('file:') ? fileURLToPath(identifier) : identifier)
-
+const toJobContext = (githubJobId: string | undefined, workflowJob?: WorkflowJob) => {
+  const job: Record<string, unknown> = {}
+  if (githubJobId) {
+    job.id = githubJobId
+  }
+  if (!workflowJob) {
+    return job
+  }
+  if (workflowJob.id !== undefined) {
+    job.workflow_job_id = workflowJob.id
+    job.workflowJobId = workflowJob.id
+  }
+  if (workflowJob.name !== undefined) {
+    job.name = workflowJob.name
+  }
+  if (workflowJob.status !== undefined) {
+    job.status = workflowJob.status
+  }
+  if (workflowJob.conclusion !== undefined) {
+    job.conclusion = workflowJob.conclusion
+  }
+  const url = workflowJob.html_url ?? workflowJob.url
+  if (url !== undefined) {
+    job.url = url
+  }
+  return job
+}
+const resolveRunnerOperatingSystem = () => {
+  const platform = actionCore.platform
+  if (platform.isWindows) {
+    return 'Windows'
+  }
+  if (platform.isMacOS) {
+    return 'macOS'
+  }
+  if (platform.isLinux) {
+    return 'Linux'
+  }
+  return platform.platform
+}
+const toRunnerContext = (environment: MutableEnvironment) => ({
+  arch: getEnvironmentValue(environment, 'RUNNER_ARCH') ?? actionCore.platform.arch,
+  debug: actionCore.isDebug(),
+  name: getEnvironmentValue(environment, 'RUNNER_NAME'),
+  os: getEnvironmentValue(environment, 'RUNNER_OS') ?? resolveRunnerOperatingSystem(),
+  temp: getEnvironmentValue(environment, 'RUNNER_TEMP'),
+  tool_cache: getEnvironmentValue(environment, 'RUNNER_TOOL_CACHE'),
+})
+const getBindings = async (environment: MutableEnvironment, token?: string): Promise<ActionRuntimeBindings> => {
+  const github = toActionRuntimeGitHubContext(actionGithub.context, token)
+  const workflowJob = await getCurrentWorkflowJob({
+    github,
+    runnerName: getEnvironmentValue(environment, 'RUNNER_NAME'),
+    token,
+  })
+  return {
+    core: createCore(),
+    github,
+    job: toJobContext(actionGithub.context.job, workflowJob),
+    matrix: {},
+    runner: toRunnerContext(environment),
+    steps: workflowJob ? toWorkflowStepsFallback(workflowJob) : {},
+    strategy: {},
+    workflowJob: workflowJob ?? null,
+  }
+}
+const toFileIdentifierLabel = (identifier: string) => {
+  if (identifier.startsWith('file:')) {
+    return fileURLToPath(identifier)
+  }
+  return identifier
+}
 const transformTypeScriptSource = (source: string, label: string) => {
   try {
     return getStripTypeScriptTypes()(source, {mode: 'transform'})
@@ -125,14 +260,9 @@ const transformTypeScriptSource = (source: string, label: string) => {
   }
 }
 class NodeInlineModuleRuntime {
-  readonly bindings: ActionRuntimeBindings
-
-  readonly context = createExecutionContext()
+  readonly context: vm.Context
 
   readonly linkModule = async (specifier: string, referencingModule?: ModuleInstance) => {
-    if (specifier === contextModuleIdentifier) {
-      return this.getContextModule()
-    }
     const parentIdentifier = referencingModule?.identifier || this.rootModuleIdentifier
     if (isLocalFileSpecifier(specifier)) {
       return this.loadLocalModule(specifier, parentIdentifier)
@@ -148,9 +278,8 @@ class NodeInlineModuleRuntime {
 
   readonly workspace: string
 
-  constructor(bindings: ActionRuntimeBindings,
-    workspace: string) {
-    this.bindings = bindings
+  constructor(globalValues: Record<string, unknown>, workspace: string) {
+    this.context = createExecutionContext(globalValues)
     const normalizedWorkspace = path.resolve(workspace)
     this.rootModuleIdentifier = pathToFileURL(path.join(normalizedWorkspace, '__action_run_typescript_inline__.ts')).href
     this.workspace = normalizedWorkspace
@@ -217,20 +346,11 @@ class NodeInlineModuleRuntime {
     const rootModule = await this.getOrCreateModule(this.rootModuleIdentifier, () => this.createTextModule({
       identifier: this.rootModuleIdentifier,
       label: 'inline TypeScript',
-      source: createScriptModuleContent(contextModuleIdentifier, code),
+      source: code,
       transformTypeScript: true,
     }))
     await this.ensureLinked(rootModule)
     await this.ensureEvaluated(rootModule)
-  }
-
-  async getContextModule() {
-    return this.getOrCreateModule(contextModuleIdentifier, () => this.createTextModule({
-      identifier: contextModuleIdentifier,
-      label: 'injected context module',
-      source: createContextModuleContent(this.bindings),
-      transformTypeScript: true,
-    }))
   }
 
   async getOrCreateModule(identifier: string, createModule: () => ModuleInstance | Promise<ModuleInstance>) {
@@ -242,14 +362,15 @@ class NodeInlineModuleRuntime {
     if (pendingModule) {
       return pendingModule
     }
-    const createdModule = Promise.resolve(createModule())
-      .then(module => {
+    const createdModule = (async () => {
+      try {
+        const module = await createModule()
         this.moduleCache.set(identifier, module)
         return module
-      })
-      .finally(() => {
+      } finally {
         this.pendingModuleCache.delete(identifier)
-      })
+      }
+    })()
     this.pendingModuleCache.set(identifier, createdModule)
     return createdModule
   }
@@ -369,15 +490,16 @@ class NodeInlineModuleRuntime {
 export const isInternalNodeActionEnvironment = (environment: Record<string, string | undefined>) => environment[ACTION_RUN_TYPESCRIPT_INTERNAL_MODE] === '1'
 
 export const runInternalNodeAction = async (environment = process.env as MutableEnvironment) => {
-  const code = getRequiredEnvironmentValue(environment, ACTION_RUN_TYPESCRIPT_INTERNAL_CODE)
-  const bindings = parseJsonString<ActionRuntimeBindings>(getRequiredEnvironmentValue(environment, ACTION_RUN_TYPESCRIPT_INTERNAL_BINDINGS), ACTION_RUN_TYPESCRIPT_INTERNAL_BINDINGS)
-  if (bindings === undefined) {
-    throw new Error(`Missing internal environment variable ${ACTION_RUN_TYPESCRIPT_INTERNAL_BINDINGS}.`)
-  }
-  stripInternalEnvironmentValues(process.env as MutableEnvironment)
+  const code = getCode(environment)
+  const globals = parseGlobals(environment)
+  const token = getGitHubToken(environment)
+  setGitHubTokenEnvironmentValue(environment, token)
+  const bindings = await getBindings(environment, token)
+  stripRuntimeEnvironmentValues(process.env as MutableEnvironment)
   if (environment !== process.env) {
-    stripInternalEnvironmentValues(environment)
+    stripRuntimeEnvironmentValues(environment)
   }
-  const runtime = new NodeInlineModuleRuntime(bindings, process.cwd())
+  const globalValues = createGlobalValuesRecord({...bindings}, globals)
+  const runtime = new NodeInlineModuleRuntime(globalValues, process.cwd())
   await runtime.evaluate(code)
 }

@@ -19137,6 +19137,7 @@ var require_lib2 = __commonJS((exports, module) => {
 
 // src/main.ts
 import path7 from "node:path";
+import { fileURLToPath } from "node:url";
 
 // src/lib/ActionRuntime.ts
 import path6 from "node:path";
@@ -23854,6 +23855,7 @@ var import_json5 = __toESM(require_lib2(), 1);
 
 // src/lib/environment.ts
 var actionInputNames = ["code", "github-token", "globals"];
+var unresolvedExpressionPattern = /^\s*\$\{\{[\s\S]*\}\}\s*$/;
 var deprecatedContextEnvironmentNames = [
   "ACTION_RUN_TYPESCRIPT_GITHUB_CONTEXT",
   "ACTION_RUN_TYPESCRIPT_JOB_CONTEXT",
@@ -23873,7 +23875,6 @@ var legacyActionRuntimeInputEnvironmentNames = [
   "ACTION_RUN_TYPESCRIPT_GITHUB_TOKEN",
   "ACTION_RUN_TYPESCRIPT_GLOBALS"
 ];
-var unresolvedExpressionPattern = /^\s*\$\{\{[\s\S]*\}\}\s*$/;
 var normalizeEnvironmentValue = (value) => {
   if (value === undefined || value === "") {
     return;
@@ -23892,6 +23893,12 @@ var getEnvironmentValue = (environment, ...names) => {
   }
 };
 var toInputEnvironmentName = (name) => `INPUT_${name.replaceAll(" ", "_").toUpperCase()}`;
+var actionInputEnvironmentNames = actionInputNames.map(toInputEnvironmentName);
+var scrubbedEnvironmentNames = [
+  ...deprecatedContextEnvironmentNames,
+  ...legacyActionRuntimeInputEnvironmentNames,
+  ...actionInputEnvironmentNames
+];
 
 // src/lib/github/getCurrentWorkflowJob.ts
 var listWorkflowJobs = async ({ fetch: fetchImplementation = fetch, github, token }) => {
@@ -24090,288 +24097,44 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os3 from "node:os";
 import path4 from "node:path";
 import { pathToFileURL } from "node:url";
-
-// src/lib/node/createVmRunnerSource.ts
-var createVmRunnerSource = () => [
-  "import {appendFileSync, readFileSync, writeFileSync} from 'node:fs'",
-  "import {createRequire, isBuiltin} from 'node:module'",
-  "import path from 'node:path'",
-  "import {fileURLToPath, pathToFileURL} from 'node:url'",
-  "import vm from 'node:vm'",
-  "",
-  "const [payloadFile, bundleFile] = process.argv.slice(2)",
-  "if (!payloadFile || !bundleFile) { throw new Error('Missing child runner arguments.') }",
-  "const payload = JSON.parse(readFileSync(payloadFile, 'utf8'))",
-  "const bundle = readFileSync(bundleFile, 'utf8')",
-  "if (!payload || typeof payload !== 'object' || Array.isArray(payload)) { throw new TypeError('Invalid VM runner payload.') }",
-  "if (!payload.bindings || typeof payload.bindings !== 'object' || Array.isArray(payload.bindings)) { throw new TypeError('Invalid VM runner bindings payload.') }",
-  "if (!payload.globals || typeof payload.globals !== 'object' || Array.isArray(payload.globals)) { throw new TypeError('Invalid VM runner globals payload.') }",
-  "if (typeof payload.identifier !== 'string' || !payload.identifier) { throw new TypeError('Invalid VM runner module identifier.') }",
-  "",
-  "const defineGlobalValue = (target, name, value) => {",
-  "  Reflect.defineProperty(target, name, {",
-  "    configurable: true,",
-  "    enumerable: true,",
-  "    value,",
-  "    writable: true,",
-  "  })",
-  "}",
-  "const createGlobalValuesRecord = (...sources) => {",
-  "  const record = Object.create(null)",
-  "  for (const source of sources) {",
-  "    for (const [name, value] of Object.entries(source)) {",
-  "      defineGlobalValue(record, name, value)",
-  "    }",
-  "  }",
-  "  return record",
-  "}",
-  "const createExecutionContext = globalValues => {",
-  "  const sandbox = Object.create(null)",
-  "  for (const key of Reflect.ownKeys(globalThis)) {",
-  "    if (key === 'crypto' || key === 'global' || key === 'globalThis' || key === 'self') {",
-  "      continue",
-  "    }",
-  "    const descriptor = Reflect.getOwnPropertyDescriptor(globalThis, key)",
-  "    if (descriptor) {",
-  "      Reflect.defineProperty(sandbox, key, descriptor)",
-  "    }",
-  "  }",
-  "  for (const [name, value] of Object.entries(globalValues)) {",
-  "    defineGlobalValue(sandbox, name, value)",
-  "  }",
-  "  Reflect.defineProperty(sandbox, 'global', {configurable: true, enumerable: false, value: sandbox, writable: true})",
-  "  Reflect.defineProperty(sandbox, 'globalThis', {configurable: true, enumerable: false, value: sandbox, writable: true})",
-  "  Reflect.defineProperty(sandbox, 'self', {configurable: true, enumerable: false, value: sandbox, writable: true})",
-  "  Reflect.defineProperty(sandbox, 'crypto', {configurable: true, enumerable: false, value: globalThis.crypto, writable: true})",
-  "  return vm.createContext(sandbox)",
-  "}",
-  "",
-  "const getEnvironmentFile = name => {",
-  "  const file = process.env[name]",
-  "  if (!file) {",
-  "    throw new Error(`Missing ${name}.`)",
-  "  }",
-  "  return file",
-  "}",
-  "const toCommandValue = value => {",
-  "  if (value === undefined || value === null) {",
-  "    return ''",
-  "  }",
-  "  if (typeof value === 'string') {",
-  "    return value",
-  "  }",
-  "  const serialized = JSON.stringify(value)",
-  "  return serialized === undefined ? '' : serialized",
-  "}",
-  String.raw`const escapeCommandValue = value => toCommandValue(value).replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A')`,
-  "const escapeCommandProperty = value => escapeCommandValue(value).replaceAll(':', '%3A').replaceAll(',', '%2C')",
-  "const toCommandPropertyString = properties => {",
-  "  if (!properties) {",
-  "    return ''",
-  "  }",
-  "  const entries = Object.entries(properties).filter(([, value]) => value !== undefined && value !== null && value !== '')",
-  "  if (!entries.length) {",
-  "    return ''",
-  "  }",
-  "  return ` ${entries.map(([key, value]) => `${key}=${escapeCommandProperty(value)}`).join(',')}`",
-  "}",
-  "const issueCommand = (command, message = '', properties) => {",
-  "  console.log(`::${command}${toCommandPropertyString(properties)}::${escapeCommandValue(message)}`)",
-  "}",
-  "const appendEnvironmentFileValue = (environmentFileName, name, value) => {",
-  "  const stringValue = toCommandValue(value)",
-  "  const delimiter = `gha_delimiter_${globalThis.crypto.randomUUID()}`",
-  "  const serializedLine = /[\\n\\r]/.test(stringValue) ? `${name}<<${delimiter}\\n${stringValue}\\n${delimiter}\\n` : `${name}=${stringValue}\\n`",
-  "  appendFileSync(getEnvironmentFile(environmentFileName), serializedLine, 'utf8')",
-  "}",
-  "const appendEnvironmentFileLine = (environmentFileName, value) => {",
-  "  appendFileSync(getEnvironmentFile(environmentFileName), `${toCommandValue(value)}\\n`, 'utf8')",
-  "}",
-  "const startGroup = name => { issueCommand('group', name) }",
-  "const endGroup = () => { issueCommand('endgroup') }",
-  "const createCore = () => {",
-  "  const summary = {",
-  "    append(value) {",
-  "      appendFileSync(getEnvironmentFile('GITHUB_STEP_SUMMARY'), toCommandValue(value), 'utf8')",
-  "    },",
-  "    clear() {",
-  "      writeFileSync(getEnvironmentFile('GITHUB_STEP_SUMMARY'), '', 'utf8')",
-  "    },",
-  "    write(value) {",
-  "      writeFileSync(getEnvironmentFile('GITHUB_STEP_SUMMARY'), toCommandValue(value), 'utf8')",
-  "    },",
-  "  }",
-  "  return {",
-  "    addPath(inputPath) {",
-  "      appendEnvironmentFileLine('GITHUB_PATH', inputPath)",
-  "    },",
-  "    debug(message) {",
-  "      issueCommand('debug', message)",
-  "    },",
-  "    endGroup,",
-  "    error(message, properties) {",
-  "      issueCommand('error', message, properties)",
-  "    },",
-  "    exportVariable(name, value) {",
-  "      appendEnvironmentFileValue('GITHUB_ENV', name, value)",
-  "    },",
-  "    getState(name) {",
-  "      return process.env[`STATE_${name}`] || ''",
-  "    },",
-  "    async group(name, run) {",
-  "      startGroup(name)",
-  "      try {",
-  "        return await run()",
-  "      } finally {",
-  "        endGroup()",
-  "      }",
-  "    },",
-  "    info(message) {",
-  "      console.log(toCommandValue(message))",
-  "    },",
-  "    isDebug() {",
-  "      return process.env.RUNNER_DEBUG === '1'",
-  "    },",
-  "    notice(message, properties) {",
-  "      issueCommand('notice', message, properties)",
-  "    },",
-  "    saveState(name, value) {",
-  "      appendEnvironmentFileValue('GITHUB_STATE', name, value)",
-  "    },",
-  "    setFailed(message) {",
-  "      const normalizedMessage = message instanceof Error ? message.stack || message.message : message",
-  "      issueCommand('error', normalizedMessage)",
-  "      process.exitCode = 1",
-  "    },",
-  "    setOutput(name, value) {",
-  "      appendEnvironmentFileValue('GITHUB_OUTPUT', name, value)",
-  "    },",
-  "    setSecret(secret) {",
-  "      issueCommand('add-mask', secret)",
-  "    },",
-  "    startGroup,",
-  "    summary,",
-  "    warning(message, properties) {",
-  "      issueCommand('warning', message, properties)",
-  "    },",
-  "  }",
-  "}",
-  "",
-  "class NodeBundleModuleRuntime {",
-  "  constructor(code, identifier, globals) {",
-  "    this.code = code",
-  "    this.context = createExecutionContext(globals)",
-  "    this.identifier = identifier",
-  "    this.moduleCache = new Map()",
-  "  }",
-  "  async ensureEvaluated(module) {",
-  "    if (module.status === 'unlinked') {",
-  "      await this.ensureLinked(module)",
-  "    }",
-  "    if (module.status === 'linked') {",
-  "      await module.evaluate()",
-  "    }",
-  "  }",
-  "  async ensureLinked(module) {",
-  "    if (module.status === 'unlinked') {",
-  "      await module.link((specifier, referencingModule) => this.linkModule(specifier, referencingModule))",
-  "    }",
-  "  }",
-  "  async evaluate() {",
-  "    const rootModule = new vm.SourceTextModule(this.code, {",
-  "      context: this.context,",
-  "      identifier: this.identifier,",
-  "      importModuleDynamically: (specifier, referencingModule) => this.importModuleDynamically(specifier, referencingModule),",
-  "      initializeImportMeta: importMeta => {",
-  "        importMeta.url = this.identifier",
-  "        if (this.identifier.startsWith('file:')) {",
-  "          const filename = fileURLToPath(this.identifier)",
-  "          importMeta.dirname = path.dirname(filename)",
-  "          importMeta.filename = filename",
-  "        }",
-  "      },",
-  "    })",
-  "    await this.ensureLinked(rootModule)",
-  "    await this.ensureEvaluated(rootModule)",
-  "  }",
-  "  async importModuleDynamically(specifier, referencingModule) {",
-  "    const linkedModule = await this.linkModule(specifier, referencingModule)",
-  "    await this.ensureLinked(linkedModule)",
-  "    await this.ensureEvaluated(linkedModule)",
-  "    return linkedModule",
-  "  }",
-  "  async linkModule(specifier, referencingModule) {",
-  "    const parentIdentifier = referencingModule?.identifier || this.identifier",
-  "    const resolvedSpecifier = this.resolveExternalModuleSpecifier(specifier, parentIdentifier)",
-  "    const cachedModule = this.moduleCache.get(resolvedSpecifier)",
-  "    if (cachedModule) {",
-  "      return cachedModule",
-  "    }",
-  "    const namespace = await import(resolvedSpecifier)",
-  "    const exportNames = Object.getOwnPropertyNames(namespace)",
-  "    const module = new vm.SyntheticModule(exportNames, () => {",
-  "      for (const exportName of exportNames) {",
-  "        module.setExport(exportName, namespace[exportName])",
-  "      }",
-  "    }, {",
-  "      context: this.context,",
-  "      identifier: resolvedSpecifier,",
-  "    })",
-  "    this.moduleCache.set(resolvedSpecifier, module)",
-  "    return module",
-  "  }",
-  "  resolveExternalModuleSpecifier(specifier, parentIdentifier) {",
-  "    if (specifier.startsWith('node:')) {",
-  "      return specifier",
-  "    }",
-  "    if (isBuiltin(specifier)) {",
-  "      return `node:${specifier}`",
-  "    }",
-  "    const requireParentPath = parentIdentifier.startsWith('file:') ? fileURLToPath(parentIdentifier) : path.join(process.cwd(), '__action_run_typescript_require__.mjs')",
-  "    const resolvedSpecifier = createRequire(requireParentPath).resolve(specifier)",
-  "    return resolvedSpecifier.startsWith('node:') ? resolvedSpecifier : pathToFileURL(resolvedSpecifier).href",
-  "  }",
-  "}",
-  "",
-  "const globals = createGlobalValuesRecord({...payload.bindings, core: createCore()}, payload.globals)",
-  "const runtime = new NodeBundleModuleRuntime(bundle, payload.identifier, globals)",
-  "await runtime.evaluate()",
-  ""
-].join(`
-`);
-
-// src/lib/node/NodeModuleRunner.ts
 var createSpawnEnvironment = (environment) => Object.fromEntries(Object.entries(environment).filter(([, value]) => value !== undefined));
+var waitForChildProcess = (child2) => new Promise((resolve2, reject) => {
+  child2.once("error", reject);
+  child2.once("close", (exitCode, signal) => {
+    resolve2({
+      exitCode,
+      signal
+    });
+  });
+});
 
 class NodeModuleRunner {
   options;
   constructor(options) {
     this.options = options;
   }
+  getPayload() {
+    return {
+      bindings: this.options.bindings,
+      globals: this.options.globals,
+      identifier: pathToFileURL(path4.join(this.options.workspace, "__action_run_typescript_bundle__.mjs")).href
+    };
+  }
   getTempRoot() {
     return this.options.environment.RUNNER_TEMP || os3.tmpdir();
-  }
-  getVirtualBundleIdentifier() {
-    return pathToFileURL(path4.join(this.options.workspace, "__action_run_typescript_bundle__.mjs")).href;
   }
   async run() {
     mkdirSync(this.getTempRoot(), { recursive: true });
     const temporaryFolder = mkdtempSync(path4.join(this.getTempRoot(), "action-run-typescript-"));
     const bundleFile = path4.join(temporaryFolder, "bundle.mjs");
     const payloadFile = path4.join(temporaryFolder, "payload.json");
-    const runnerFile = path4.join(temporaryFolder, "runner.mjs");
     writeFileSync(bundleFile, this.options.bundle, "utf8");
-    writeFileSync(payloadFile, JSON.stringify({
-      bindings: this.options.bindings,
-      globals: this.options.globals,
-      identifier: this.getVirtualBundleIdentifier()
-    }), "utf8");
-    writeFileSync(runnerFile, createVmRunnerSource(), "utf8");
+    writeFileSync(payloadFile, JSON.stringify(this.getPayload()), "utf8");
     try {
       const child2 = spawn2(process.execPath, [
         "--disable-warning=ExperimentalWarning",
         "--experimental-vm-modules",
-        path4.resolve(runnerFile),
+        path4.resolve(this.options.vmRunnerPath),
         path4.resolve(payloadFile),
         path4.resolve(bundleFile)
       ], {
@@ -24379,15 +24142,7 @@ class NodeModuleRunner {
         env: createSpawnEnvironment(this.options.environment),
         stdio: "inherit"
       });
-      const { exitCode, signal } = await new Promise((resolve2, reject) => {
-        child2.once("error", reject);
-        child2.once("close", (closedExitCode, closedSignal) => {
-          resolve2({
-            exitCode: closedExitCode,
-            signal: closedSignal
-          });
-        });
-      });
+      const { exitCode, signal } = await waitForChildProcess(child2);
       if (signal) {
         throw new Error(`Inline TypeScript exited due to signal ${signal}.`);
       }
@@ -24586,6 +24341,19 @@ var createToolkitGitHubContext = () => {
   const GitHubContext = context2.constructor;
   return new GitHubContext;
 };
+var resolveRunnerOperatingSystem = () => {
+  const platform2 = exports_platform;
+  if (platform2.isWindows) {
+    return "Windows";
+  }
+  if (platform2.isMacOS) {
+    return "macOS";
+  }
+  if (platform2.isLinux) {
+    return "Linux";
+  }
+  return platform2.platform;
+};
 var toJobContext = (githubJobId, workflowJob) => {
   const job = {};
   if (githubJobId) {
@@ -24613,25 +24381,14 @@ var toJobContext = (githubJobId, workflowJob) => {
   }
   return job;
 };
-var resolveRunnerOperatingSystem = () => {
-  const platform2 = exports_platform;
-  if (platform2.isWindows) {
-    return "Windows";
-  }
-  if (platform2.isMacOS) {
-    return "macOS";
-  }
-  if (platform2.isLinux) {
-    return "Linux";
-  }
-  return platform2.platform;
-};
 
 class ActionRuntime {
   environment;
+  options;
   workspace;
-  constructor(environment) {
+  constructor(environment, options) {
     this.environment = environment;
+    this.options = options;
     this.workspace = toForwardSlashPath(path6.resolve(environment.GITHUB_WORKSPACE || process.cwd()));
   }
   createBundler() {
@@ -24686,11 +24443,7 @@ class ActionRuntime {
       ...process.env,
       ...this.environment
     };
-    for (const name of [
-      ...deprecatedContextEnvironmentNames,
-      ...legacyActionRuntimeInputEnvironmentNames,
-      ...actionInputNames.map(toInputEnvironmentName)
-    ]) {
+    for (const name of scrubbedEnvironmentNames) {
       delete executionEnvironment[name];
     }
     if (token && !executionEnvironment.GITHUB_TOKEN) {
@@ -24735,6 +24488,7 @@ class ActionRuntime {
       bundle,
       environment: this.getExecutionEnvironment(executionState.token),
       globals: executionState.globals,
+      vmRunnerPath: this.options.vmRunnerPath,
       workspace: this.workspace
     });
     await runner.run();
@@ -24743,6 +24497,9 @@ class ActionRuntime {
 
 // src/main.ts
 var actionEntryPath = import.meta.filename;
+var createActionRuntimeOptions = () => ({
+  vmRunnerPath: fileURLToPath(new URL(`./vm-runner${path7.extname(import.meta.filename)}`, import.meta.url))
+});
 var isMainModule = () => {
   const entryPath = process.argv[1];
   if (!entryPath) {
@@ -24751,7 +24508,7 @@ var isMainModule = () => {
   return path7.resolve(entryPath) === actionEntryPath;
 };
 var runAction = async (environment = process.env) => {
-  const runtime = new ActionRuntime(environment);
+  const runtime = new ActionRuntime(environment, createActionRuntimeOptions());
   await runtime.run();
 };
 var main_default = runAction;

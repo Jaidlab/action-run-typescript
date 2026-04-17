@@ -8,6 +8,30 @@ const rspackRuntimePackageNames = [
   '@rspack/binding-linux-x64-gnu',
   '@rspack/binding-win32-x64-msvc',
 ] as const
+const buildActionEntry = async ({entryFile, external = [], outputFile}: {entryFile: string
+  external?: Array<string>
+  outputFile: string}) => {
+  const result = await Bun.build({
+    entrypoints: [entryFile],
+    format: 'esm',
+    minify: isProduction,
+    external,
+    packages: 'bundle',
+    splitting: false,
+    target: 'node',
+  })
+  if (!result.success) {
+    for (const log of result.logs) {
+      console.error(log)
+    }
+    throw new Error(`Failed to build ${entryFile}.`)
+  }
+  const outputArtifact = result.outputs.find(output => output.kind === 'entry-point')
+  if (!outputArtifact) {
+    throw new Error(`No entry-point output artifact found for ${entryFile}.`)
+  }
+  await Bun.write(outputFile, outputArtifact)
+}
 const copyPackageFolder = (packageName: string, outputFolder: string, rootFolder: string) => {
   const packagePathSegments = packageName.split('/')
   const sourceFolder = path.join(rootFolder, 'node_modules', ...packagePathSegments)
@@ -21,20 +45,8 @@ const copyPackageFolder = (packageName: string, outputFolder: string, rootFolder
   })
   return true
 }
-const getPackageVersion = async (packageJsonFile: string, packageName: string) => {
-  const packageJson = await Bun.file(packageJsonFile).json() as {
-    readonly dependencies?: Record<string, string>
-    readonly devDependencies?: Record<string, string>
-  }
-  const rawVersion = packageJson.dependencies?.[packageName] || packageJson.devDependencies?.[packageName]
-  if (!rawVersion) {
-    throw new Error(`Package ${packageName} is not declared in package.json.`)
-  }
-  return rawVersion.replace(/^[\^~]/, '')
-}
 const downloadPackageFolder = async (packageName: string, version: string, outputFolder: string) => {
-  const encodedPackageName = packageName.replace('/', '%2f')
-  const metadataUrl = `https://registry.npmjs.org/${encodedPackageName}/${version}`
+  const metadataUrl = `https://registry.npmjs.org/${packageName.replace('/', '%2f')}/${version}`
   const metadataResponse = await fetch(metadataUrl)
   if (!metadataResponse.ok) {
     throw new Error(`Failed to fetch package metadata for ${packageName}@${version} from ${metadataUrl}.`)
@@ -76,42 +88,39 @@ const downloadPackageFolder = async (packageName: string, version: string, outpu
     })
   }
 }
+const ensureRuntimePackageFolder = async (packageName: string, outputFolder: string, packageJsonFile: string, rootFolder: string) => {
+  if (copyPackageFolder(packageName, outputFolder, rootFolder)) {
+    return
+  }
+  const packageJson = await Bun.file(packageJsonFile).json() as {
+    readonly dependencies?: Record<string, string>
+    readonly devDependencies?: Record<string, string>
+  }
+  const rawVersion = packageJson.dependencies?.[packageName] || packageJson.devDependencies?.[packageName]
+  if (!rawVersion) {
+    throw new Error(`Package ${packageName} is not declared in package.json.`)
+  }
+  await downloadPackageFolder(packageName, rawVersion.replace(/^[\^~]/, ''), outputFolder)
+}
 const isProduction = process.env.NODE_ENV === 'production'
 const rootFolder = path.resolve(process.cwd())
 const outputFolder = path.join(rootFolder, 'dist')
-const outputFile = path.join(outputFolder, 'action.js')
-const entryFile = path.join(rootFolder, 'src', 'main.ts')
 const packageJsonFile = path.join(rootFolder, 'package.json')
 rmSync(outputFolder, {
   force: true,
   recursive: true,
 })
 mkdirSync(outputFolder, {recursive: true})
-const result = await Bun.build({
-  entrypoints: [entryFile],
-  format: 'esm',
-  minify: isProduction,
+await buildActionEntry({
+  entryFile: path.join(rootFolder, 'src', 'main.ts'),
   external: ['@rspack/core'],
-  packages: 'bundle',
-  splitting: false,
-  target: 'node',
+  outputFile: path.join(outputFolder, 'action.js'),
 })
-if (!result.success) {
-  for (const log of result.logs) {
-    console.error(log)
-  }
-  throw new Error('Failed to build action bundle.')
-}
-const outputArtifact = result.outputs.find(output => output.kind === 'entry-point')
-if (!outputArtifact) {
-  throw new Error('No entry-point output artifact found.')
-}
-await Bun.write(outputFile, outputArtifact)
+await buildActionEntry({
+  entryFile: path.join(rootFolder, 'src', 'vm-runner.ts'),
+  outputFile: path.join(outputFolder, 'vm-runner.js'),
+})
 for (const packageName of rspackRuntimePackageNames) {
-  if (copyPackageFolder(packageName, outputFolder, rootFolder)) {
-    continue
-  }
-  const version = await getPackageVersion(packageJsonFile, packageName)
-  await downloadPackageFolder(packageName, version, outputFolder)
+  await ensureRuntimePackageFolder(packageName, outputFolder, packageJsonFile, rootFolder)
 }
-console.log(`Built action bundle: ${outputFile}`)
+console.log(`Built action bundle: ${path.join(outputFolder, 'action.js')}`)

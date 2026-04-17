@@ -9,12 +9,7 @@ import * as actionCore from '@actions/core'
 import * as actionGithub from '@actions/github'
 import json5 from 'json5'
 
-import {actionInputNames,
-  deprecatedContextEnvironmentNames,
-  getEnvironmentValue,
-  legacyActionRuntimeInputEnvironmentNames,
-  normalizeEnvironmentValue,
-  toInputEnvironmentName} from './environment.ts'
+import {getEnvironmentValue, normalizeEnvironmentValue, scrubbedEnvironmentNames} from './environment.ts'
 import {getCurrentWorkflowJob} from './github/getCurrentWorkflowJob.ts'
 import {toActionRuntimeGitHubContext} from './github/toActionRuntimeGitHubContext.ts'
 import {toWorkflowStepsFallback} from './github/toWorkflowStepsFallback.ts'
@@ -39,6 +34,10 @@ export interface ActionRuntimeEnvironment extends Record<string, string | undefi
   readonly RUNNER_TOOL_CACHE?: string
 }
 
+export interface ActionRuntimeOptions {
+  readonly vmRunnerPath: string
+}
+
 type MutableActionRuntimeEnvironment = Record<string, string | undefined>
 
 type ActionExecutionState = {
@@ -51,6 +50,19 @@ type ActionExecutionState = {
 const createToolkitGitHubContext = () => {
   const GitHubContext = actionGithub.context.constructor as new () => ToolkitGitHubContext
   return new GitHubContext
+}
+const resolveRunnerOperatingSystem = () => {
+  const platform = actionCore.platform
+  if (platform.isWindows) {
+    return 'Windows'
+  }
+  if (platform.isMacOS) {
+    return 'macOS'
+  }
+  if (platform.isLinux) {
+    return 'Linux'
+  }
+  return platform.platform
 }
 const toJobContext = (githubJobId: string | undefined, workflowJob?: WorkflowJob) => {
   const job: Record<string, unknown> = {}
@@ -79,27 +91,17 @@ const toJobContext = (githubJobId: string | undefined, workflowJob?: WorkflowJob
   }
   return job
 }
-const resolveRunnerOperatingSystem = () => {
-  const platform = actionCore.platform
-  if (platform.isWindows) {
-    return 'Windows'
-  }
-  if (platform.isMacOS) {
-    return 'macOS'
-  }
-  if (platform.isLinux) {
-    return 'Linux'
-  }
-  return platform.platform
-}
 
 export class ActionRuntime {
   readonly environment: ActionRuntimeEnvironment
 
+  readonly options: ActionRuntimeOptions
+
   readonly workspace: string
 
-  constructor(environment: ActionRuntimeEnvironment) {
+  constructor(environment: ActionRuntimeEnvironment, options: ActionRuntimeOptions) {
     this.environment = environment
+    this.options = options
     this.workspace = toForwardSlashPath(path.resolve(environment.GITHUB_WORKSPACE || process.cwd()))
   }
 
@@ -151,7 +153,7 @@ export class ActionRuntime {
     return code
   }
 
-  getEnvironmentValue(...names: Array<string>) {
+  getEnvironmentValue(...names: ReadonlyArray<string>) {
     return getEnvironmentValue(this.environment, ...names)
   }
 
@@ -160,11 +162,7 @@ export class ActionRuntime {
       ...(process.env as MutableActionRuntimeEnvironment),
       ...this.environment,
     }
-    for (const name of [
-      ...deprecatedContextEnvironmentNames,
-      ...legacyActionRuntimeInputEnvironmentNames,
-      ...actionInputNames.map(toInputEnvironmentName),
-    ]) {
+    for (const name of scrubbedEnvironmentNames) {
       delete executionEnvironment[name]
     }
     if (token && !executionEnvironment.GITHUB_TOKEN) {
@@ -214,6 +212,7 @@ export class ActionRuntime {
       bundle,
       environment: this.getExecutionEnvironment(executionState.token),
       globals: executionState.globals,
+      vmRunnerPath: this.options.vmRunnerPath,
       workspace: this.workspace,
     })
     await runner.run()

@@ -1,5 +1,7 @@
 export const actionInputNames = ['code', 'github-token', 'globals'] as const
 
+const unresolvedExpressionPattern = /^\s*\$\{\{[\s\S]*\}\}\s*$/
+
 export const deprecatedContextEnvironmentNames = [
   'ACTION_RUN_TYPESCRIPT_GITHUB_CONTEXT',
   'ACTION_RUN_TYPESCRIPT_JOB_CONTEXT',
@@ -21,8 +23,6 @@ export const legacyActionRuntimeInputEnvironmentNames = [
   'ACTION_RUN_TYPESCRIPT_GLOBALS',
 ] as const
 
-const unresolvedExpressionPattern = /^\s*\$\{\{[\s\S]*\}\}\s*$/
-
 export const normalizeEnvironmentValue = (value: string | undefined) => {
   if (value === undefined || value === '') {
     return
@@ -33,7 +33,7 @@ export const normalizeEnvironmentValue = (value: string | undefined) => {
   return value
 }
 
-export const getEnvironmentValue = (environment: Record<string, string | undefined>, ...names: Array<string>) => {
+export const getEnvironmentValue = (environment: Record<string, string | undefined>, ...names: ReadonlyArray<string>) => {
   for (const name of names) {
     const value = normalizeEnvironmentValue(environment[name])
     if (value !== undefined) {
@@ -43,3 +43,11 @@ export const getEnvironmentValue = (environment: Record<string, string | undefin
 }
 
 export const toInputEnvironmentName = (name: string) => `INPUT_${name.replaceAll(' ', '_').toUpperCase()}`
+
+export const actionInputEnvironmentNames = actionInputNames.map(toInputEnvironmentName)
+
+export const scrubbedEnvironmentNames = [
+  ...deprecatedContextEnvironmentNames,
+  ...legacyActionRuntimeInputEnvironmentNames,
+  ...actionInputEnvironmentNames,
+] as const

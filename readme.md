@@ -42,10 +42,10 @@ Your inline code runs in a dedicated Node.js 24 child process from the workflow 
 - `strategy` – `{}` by default
 - `steps` – `{}` by default or a best-effort fallback derived from the workflow jobs API
 - `workflowJob` – best-effort metadata for the current workflow job, including its step list when available
-- every top-level field from `with.globals` – these are assigned after the built-in bindings, so they can override names like `matrix`, `strategy` or `steps`
+- every top-level field from `with.globals` – these are assigned after the built-in bindings, so they can override names like `matrix`, `strategy`, `steps` or even `core`
 - standard Node globals such as `fetch`, `console`, `process`, `Buffer`, `URL` and friends
 
-Because the bindings are real globals in the VM context, imported local modules can use them too.
+Because the bindings are real globals in the VM context, bundled local modules can use them too.
 
 ## Passing extra globals
 
@@ -84,19 +84,27 @@ jobs:
 
 If you do not pass `steps`, the action still tries to populate `steps` and `workflowJob` from the GitHub Actions jobs API. That fallback is useful for introspection, but it cannot reconstruct step outputs. In that mode, `steps` is shaped like `{ $source, $job, $list, $byName, $byNumber, $bySlug }`.
 
-## Relative imports
+## Imports and bundling
 
-The inline script is evaluated as a workspace-rooted module, so relative imports behave as expected:
+The inline script is first bundled with Rspack from the workspace root and then evaluated in the VM. This means:
+
+- relative imports behave as expected from the workspace root
+- local `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs` and `.json` files are bundled before execution
+- inline TSX and local TSX or JSX imports are supported
+- bare package imports stay external and resolve from the workspace at runtime
+
+Example:
 
 ```yml
 - uses: Jaidlab/action-run-typescript@v0.1.0
   with:
     code: |-
       import packageJson from './package.json'
-      console.dir(packageJson)
+      import component from './src/component.tsx'
+      console.dir({packageJson, component})
 ```
 
-Supported local imports include `.ts`, `.mts`, `.cts`, `.js`, `.mjs` and `.json`. JSON imports do not require import assertions. TSX and JSX are intentionally not supported.
+JSX and TSX use Rspack’s SWC-based React automatic runtime. If your code uses JSX, the corresponding runtime helpers, such as `react/jsx-runtime`, must be resolvable from the workspace.
 
 ## `core` helper
 
@@ -125,7 +133,7 @@ The injected `core` object supports a practical subset of `@actions/core`:
 
 - GitHub context is gathered from the Actions toolkit instead of being passed through action inputs.
 - `matrix`, `strategy` and the real `steps` context are not available directly through the Actions toolkit. Use `globals` when you need them.
-- The inline script is evaluated through `vm.SourceTextModule` in a dedicated child Node process started with `--experimental-vm-modules`.
+- The inline script is bundled with Rspack and then evaluated through `vm.SourceTextModule` in a dedicated child Node process started with `--experimental-vm-modules`.
 - `GITHUB_TOKEN` is exposed to the script environment when available.
 - The script runs from the workflow workspace root, not from the action repository.
 - No Bun runtime is required in your workflow.

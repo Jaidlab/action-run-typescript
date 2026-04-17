@@ -30,7 +30,7 @@ export interface ActionRuntimeGitHubContext extends GitHubContext {
   readonly workflow?: string
 }
 
-interface ToolkitGitHubContext {
+export interface ToolkitGitHubContext {
   readonly action?: string
   readonly actor?: string
   readonly apiUrl?: string

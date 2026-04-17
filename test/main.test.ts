@@ -2,7 +2,7 @@
 import type {ActionRuntimeEnvironment} from '../src/lib/ActionRuntime.ts'
 
 import assert from 'node:assert/strict'
-import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises'
+import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import {describe, it} from 'node:test'
@@ -27,6 +27,21 @@ const makeEnvironment = (overrides: ActionRuntimeEnvironment = {}): ActionRuntim
   ...(process.env as ActionRuntimeEnvironment),
   ...overrides,
 })
+const writeFakeReactJsxRuntime = async (workspace: string) => {
+  const reactFolder = path.join(workspace, 'node_modules', 'react')
+  await mkdir(reactFolder, {recursive: true})
+  await writeFile(path.join(reactFolder, 'package.json'), JSON.stringify({
+    exports: {
+      './jsx-runtime': './jsx-runtime.js',
+    },
+    name: 'react',
+    type: 'module',
+  }, null, 2))
+  await writeFile(path.join(reactFolder, 'jsx-runtime.js'), `export const jsx = (tag, props) => ({tag, props})
+export const jsxs = jsx
+export const Fragment = Symbol.for('react.fragment')
+`)
+}
 void describe('action-run-typescript', () => {
   void it('should run inline TypeScript with contextual bindings, globals and relative imports', async () => {
     const workspace = await createWorkspace()
@@ -74,6 +89,47 @@ await writeFile('result.json', JSON.stringify({
         packageName: 'workspace-package',
         runnerOs: 'Linux',
         stepValue: '42',
+      })
+    } finally {
+      await rm(workspace, {
+        force: true,
+        recursive: true,
+      })
+    }
+  })
+  void it('should bundle inline TSX and local TSX imports before evaluation', async () => {
+    const workspace = await createWorkspace()
+    try {
+      await writeFakeReactJsxRuntime(workspace)
+      await writeFile(path.join(workspace, 'component.tsx'), 'export default <div>{matrix.node}</div>\n')
+      const outputFile = path.join(workspace, 'tsx.json')
+      await runAction(makeEnvironment({
+        INPUT_CODE: `import {writeFile} from 'node:fs/promises'
+import component from './component.tsx'
+const inlineComponent = <section>{matrix.node}</section>
+await writeFile('tsx.json', JSON.stringify({
+  component,
+  inlineComponent,
+}))
+`,
+        INPUT_GLOBALS: '{matrix: {node: 22}}',
+        GITHUB_REPOSITORY: 'Jaidlab/action-run-typescript',
+        GITHUB_RUN_ID: '1',
+        GITHUB_WORKSPACE: workspace,
+      }))
+      assert.deepEqual(JSON.parse(await readFile(outputFile, 'utf8')), {
+        component: {
+          props: {
+            children: 22,
+          },
+          tag: 'div',
+        },
+        inlineComponent: {
+          props: {
+            children: 22,
+          },
+          tag: 'section',
+        },
       })
     } finally {
       await rm(workspace, {

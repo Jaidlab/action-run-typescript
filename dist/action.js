@@ -1053,14 +1053,14 @@ var require_util = __commonJS((exports, module) => {
       }
       const port = url.port != null ? url.port : url.protocol === "https:" ? 443 : 80;
       let origin = url.origin != null ? url.origin : `${url.protocol || ""}//${url.hostname || ""}:${port}`;
-      let path3 = url.path != null ? url.path : `${url.pathname || ""}${url.search || ""}`;
+      let path = url.path != null ? url.path : `${url.pathname || ""}${url.search || ""}`;
       if (origin[origin.length - 1] === "/") {
         origin = origin.slice(0, origin.length - 1);
       }
-      if (path3 && path3[0] !== "/") {
-        path3 = `/${path3}`;
+      if (path && path[0] !== "/") {
+        path = `/${path}`;
       }
-      return new URL(`${origin}${path3}`);
+      return new URL(`${origin}${path}`);
     }
     if (!isHttpOrHttpsPrefixed(url.origin || url.protocol)) {
       throw new InvalidArgumentError("Invalid URL protocol: the URL must start with `http:` or `https:`.");
@@ -1490,29 +1490,29 @@ var require_diagnostics = __commonJS((exports, module) => {
     });
     diagnosticsChannel.channel("undici:client:sendHeaders").subscribe((evt) => {
       const {
-        request: { method, path: path3, origin }
+        request: { method, path, origin }
       } = evt;
-      debuglog("sending request to %s %s/%s", method, origin, path3);
+      debuglog("sending request to %s %s/%s", method, origin, path);
     });
     diagnosticsChannel.channel("undici:request:headers").subscribe((evt) => {
       const {
-        request: { method, path: path3, origin },
+        request: { method, path, origin },
         response: { statusCode }
       } = evt;
-      debuglog("received response to %s %s/%s - HTTP %d", method, origin, path3, statusCode);
+      debuglog("received response to %s %s/%s - HTTP %d", method, origin, path, statusCode);
     });
     diagnosticsChannel.channel("undici:request:trailers").subscribe((evt) => {
       const {
-        request: { method, path: path3, origin }
+        request: { method, path, origin }
       } = evt;
-      debuglog("trailers received from %s %s/%s", method, origin, path3);
+      debuglog("trailers received from %s %s/%s", method, origin, path);
     });
     diagnosticsChannel.channel("undici:request:error").subscribe((evt) => {
       const {
-        request: { method, path: path3, origin },
+        request: { method, path, origin },
         error
       } = evt;
-      debuglog("request to %s %s/%s errored - %s", method, origin, path3, error.message);
+      debuglog("request to %s %s/%s errored - %s", method, origin, path, error.message);
     });
     isClientSet = true;
   }
@@ -1540,9 +1540,9 @@ var require_diagnostics = __commonJS((exports, module) => {
       });
       diagnosticsChannel.channel("undici:client:sendHeaders").subscribe((evt) => {
         const {
-          request: { method, path: path3, origin }
+          request: { method, path, origin }
         } = evt;
-        debuglog("sending request to %s %s/%s", method, origin, path3);
+        debuglog("sending request to %s %s/%s", method, origin, path);
       });
     }
     diagnosticsChannel.channel("undici:websocket:open").subscribe((evt) => {
@@ -1598,7 +1598,7 @@ var require_request = __commonJS((exports, module) => {
 
   class Request {
     constructor(origin, {
-      path: path3,
+      path,
       method,
       body,
       headers,
@@ -1613,11 +1613,11 @@ var require_request = __commonJS((exports, module) => {
       expectContinue,
       servername
     }, handler) {
-      if (typeof path3 !== "string") {
+      if (typeof path !== "string") {
         throw new InvalidArgumentError("path must be a string");
-      } else if (path3[0] !== "/" && !(path3.startsWith("http://") || path3.startsWith("https://")) && method !== "CONNECT") {
+      } else if (path[0] !== "/" && !(path.startsWith("http://") || path.startsWith("https://")) && method !== "CONNECT") {
         throw new InvalidArgumentError("path must be an absolute URL or start with a slash");
-      } else if (invalidPathRegex.test(path3)) {
+      } else if (invalidPathRegex.test(path)) {
         throw new InvalidArgumentError("invalid request path");
       }
       if (typeof method !== "string") {
@@ -1683,7 +1683,7 @@ var require_request = __commonJS((exports, module) => {
       this.completed = false;
       this.aborted = false;
       this.upgrade = upgrade || null;
-      this.path = query ? buildURL(path3, query) : path3;
+      this.path = query ? buildURL(path, query) : path;
       this.origin = origin;
       this.idempotent = idempotent == null ? method === "HEAD" || method === "GET" : idempotent;
       this.blocking = blocking == null ? false : blocking;
@@ -5852,7 +5852,7 @@ var require_client_h1 = __commonJS((exports, module) => {
     return method !== "GET" && method !== "HEAD" && method !== "OPTIONS" && method !== "TRACE" && method !== "CONNECT";
   }
   function writeH1(client, request) {
-    const { method, path: path3, host, upgrade, blocking, reset } = request;
+    const { method, path, host, upgrade, blocking, reset } = request;
     let { body, headers, contentLength } = request;
     const expectsPayload = method === "PUT" || method === "POST" || method === "PATCH" || method === "QUERY" || method === "PROPFIND" || method === "PROPPATCH";
     if (util.isFormDataLike(body)) {
@@ -5918,7 +5918,7 @@ var require_client_h1 = __commonJS((exports, module) => {
     if (blocking) {
       socket[kBlocking] = true;
     }
-    let header = `${method} ${path3} HTTP/1.1\r
+    let header = `${method} ${path} HTTP/1.1\r
 `;
     if (typeof host === "string") {
       header += `host: ${host}\r
@@ -6447,7 +6447,7 @@ var require_client_h2 = __commonJS((exports, module) => {
   }
   function writeH2(client, request) {
     const session = client[kHTTP2Session];
-    const { method, path: path3, host, upgrade, expectContinue, signal, headers: reqHeaders } = request;
+    const { method, path, host, upgrade, expectContinue, signal, headers: reqHeaders } = request;
     let { body } = request;
     if (upgrade) {
       util.errorRequest(client, request, new Error("Upgrade not supported for H2"));
@@ -6515,7 +6515,7 @@ var require_client_h2 = __commonJS((exports, module) => {
       });
       return true;
     }
-    headers[HTTP2_HEADER_PATH] = path3;
+    headers[HTTP2_HEADER_PATH] = path;
     headers[HTTP2_HEADER_SCHEME] = "https";
     const expectsPayload = method === "PUT" || method === "POST" || method === "PATCH";
     if (body && typeof body.read === "function") {
@@ -6809,9 +6809,9 @@ var require_redirect_handler = __commonJS((exports, module) => {
         return this.handler.onHeaders(statusCode, headers, resume, statusText);
       }
       const { origin, pathname, search } = util.parseURL(new URL(this.location, this.opts.origin && new URL(this.opts.path, this.opts.origin)));
-      const path3 = search ? `${pathname}${search}` : pathname;
+      const path = search ? `${pathname}${search}` : pathname;
       this.opts.headers = cleanRequestHeaders(this.opts.headers, statusCode === 303, this.opts.origin !== origin);
-      this.opts.path = path3;
+      this.opts.path = path;
       this.opts.origin = origin;
       this.opts.maxRedirections = 0;
       this.opts.query = null;
@@ -8017,10 +8017,10 @@ var require_proxy_agent = __commonJS((exports, module) => {
       };
       const {
         origin,
-        path: path3 = "/",
+        path = "/",
         headers = {}
       } = opts;
-      opts.path = origin + path3;
+      opts.path = origin + path;
       if (!("host" in headers) && !("Host" in headers)) {
         const { host } = new URL2(origin);
         headers.host = host;
@@ -9843,20 +9843,20 @@ var require_mock_utils = __commonJS((exports, module) => {
     }
     return true;
   }
-  function safeUrl(path3) {
-    if (typeof path3 !== "string") {
-      return path3;
+  function safeUrl(path) {
+    if (typeof path !== "string") {
+      return path;
     }
-    const pathSegments = path3.split("?");
+    const pathSegments = path.split("?");
     if (pathSegments.length !== 2) {
-      return path3;
+      return path;
     }
     const qp = new URLSearchParams(pathSegments.pop());
     qp.sort();
     return [...pathSegments, qp.toString()].join("?");
   }
-  function matchKey(mockDispatch2, { path: path3, method, body, headers }) {
-    const pathMatch = matchValue(mockDispatch2.path, path3);
+  function matchKey(mockDispatch2, { path, method, body, headers }) {
+    const pathMatch = matchValue(mockDispatch2.path, path);
     const methodMatch = matchValue(mockDispatch2.method, method);
     const bodyMatch = typeof mockDispatch2.body !== "undefined" ? matchValue(mockDispatch2.body, body) : true;
     const headersMatch = matchHeaders(mockDispatch2, headers);
@@ -9878,7 +9878,7 @@ var require_mock_utils = __commonJS((exports, module) => {
   function getMockDispatch(mockDispatches, key) {
     const basePath = key.query ? buildURL(key.path, key.query) : key.path;
     const resolvedPath = typeof basePath === "string" ? safeUrl(basePath) : basePath;
-    let matchedMockDispatches = mockDispatches.filter(({ consumed }) => !consumed).filter(({ path: path3 }) => matchValue(safeUrl(path3), resolvedPath));
+    let matchedMockDispatches = mockDispatches.filter(({ consumed }) => !consumed).filter(({ path }) => matchValue(safeUrl(path), resolvedPath));
     if (matchedMockDispatches.length === 0) {
       throw new MockNotMatchedError(`Mock dispatch not matched for path '${resolvedPath}'`);
     }
@@ -9916,9 +9916,9 @@ var require_mock_utils = __commonJS((exports, module) => {
     }
   }
   function buildKey(opts) {
-    const { path: path3, method, body, headers, query } = opts;
+    const { path, method, body, headers, query } = opts;
     return {
-      path: path3,
+      path,
       method,
       body,
       headers,
@@ -10338,10 +10338,10 @@ var require_pending_interceptors_formatter = __commonJS((exports, module) => {
       });
     }
     format(pendingInterceptors) {
-      const withPrettyHeaders = pendingInterceptors.map(({ method, path: path3, data: { statusCode }, persist, times, timesInvoked, origin }) => ({
+      const withPrettyHeaders = pendingInterceptors.map(({ method, path, data: { statusCode }, persist, times, timesInvoked, origin }) => ({
         Method: method,
         Origin: origin,
-        Path: path3,
+        Path: path,
         "Status code": statusCode,
         Persistent: persist ? PERSISTENT : NOT_PERSISTENT,
         Invocations: timesInvoked,
@@ -14767,9 +14767,9 @@ var require_util6 = __commonJS((exports, module) => {
       }
     }
   }
-  function validateCookiePath(path3) {
-    for (let i = 0;i < path3.length; ++i) {
-      const code = path3.charCodeAt(i);
+  function validateCookiePath(path) {
+    for (let i = 0;i < path.length; ++i) {
+      const code = path.charCodeAt(i);
       if (code < 32 || code === 127 || code === 59) {
         throw new Error("Invalid cookie path");
       }
@@ -17213,11 +17213,11 @@ var require_undici = __commonJS((exports, module) => {
         if (typeof opts.path !== "string") {
           throw new InvalidArgumentError("invalid opts.path");
         }
-        let path3 = opts.path;
+        let path = opts.path;
         if (!opts.path.startsWith("/")) {
-          path3 = `/${path3}`;
+          path = `/${path}`;
         }
-        url = new URL(util.parseOrigin(url).origin + path3);
+        url = new URL(util.parseOrigin(url).origin + path);
       } else {
         if (!opts) {
           opts = typeof url === "object" ? url : {};
@@ -19139,143 +19139,7 @@ var require_lib2 = __commonJS((exports, module) => {
 import path7 from "node:path";
 
 // src/lib/ActionRuntime.ts
-import path2 from "node:path";
-
-// src/lib/environment.ts
-var actionInputNames = ["code", "github-token", "globals"];
-var deprecatedContextEnvironmentNames = [
-  "ACTION_RUN_TYPESCRIPT_GITHUB_CONTEXT",
-  "ACTION_RUN_TYPESCRIPT_JOB_CONTEXT",
-  "ACTION_RUN_TYPESCRIPT_MATRIX_CONTEXT",
-  "ACTION_RUN_TYPESCRIPT_RUNNER_CONTEXT",
-  "ACTION_RUN_TYPESCRIPT_STEPS_CONTEXT",
-  "ACTION_RUN_TYPESCRIPT_STRATEGY_CONTEXT",
-  "INPUT_GITHUB_CONTEXT",
-  "INPUT_JOB_CONTEXT",
-  "INPUT_MATRIX_CONTEXT",
-  "INPUT_RUNNER_CONTEXT",
-  "INPUT_STEPS",
-  "INPUT_STRATEGY_CONTEXT"
-];
-var legacyActionRuntimeInputEnvironmentNames = [
-  "ACTION_RUN_TYPESCRIPT_CODE",
-  "ACTION_RUN_TYPESCRIPT_GITHUB_TOKEN",
-  "ACTION_RUN_TYPESCRIPT_GLOBALS"
-];
-var unresolvedExpressionPattern = /^\s*\$\{\{[\s\S]*\}\}\s*$/;
-var normalizeEnvironmentValue = (value) => {
-  if (value === undefined || value === "") {
-    return;
-  }
-  if (unresolvedExpressionPattern.test(value)) {
-    return;
-  }
-  return value;
-};
-var getEnvironmentValue = (environment, ...names) => {
-  for (const name of names) {
-    const value = normalizeEnvironmentValue(environment[name]);
-    if (value !== undefined) {
-      return value;
-    }
-  }
-};
-var toInputEnvironmentName = (name) => `INPUT_${name.replaceAll(" ", "_").toUpperCase()}`;
-
-// src/lib/node/internalEnvironment.ts
-var ACTION_RUN_TYPESCRIPT_INTERNAL_MODE = "ACTION_RUN_TYPESCRIPT_INTERNAL_MODE";
-var internalEnvironmentNames = [ACTION_RUN_TYPESCRIPT_INTERNAL_MODE];
-
-// src/lib/node/NodeModuleRunner.ts
-import { spawn } from "node:child_process";
-import path from "node:path";
-var createSpawnEnvironment = (environment) => Object.fromEntries(Object.entries(environment).filter(([, value]) => value !== undefined));
-
-class NodeModuleRunner {
-  options;
-  constructor(options) {
-    this.options = options;
-  }
-  async run() {
-    const child = spawn(process.execPath, [
-      "--disable-warning=ExperimentalWarning",
-      "--experimental-vm-modules",
-      path.resolve(this.options.actionPath)
-    ], {
-      cwd: this.options.workspace,
-      env: createSpawnEnvironment({
-        ...this.options.environment,
-        [ACTION_RUN_TYPESCRIPT_INTERNAL_MODE]: "1"
-      }),
-      stdio: "inherit"
-    });
-    const { exitCode, signal } = await new Promise((resolve, reject) => {
-      child.once("error", reject);
-      child.once("close", (closedExitCode, closedSignal) => {
-        resolve({
-          exitCode: closedExitCode,
-          signal: closedSignal
-        });
-      });
-    });
-    if (signal) {
-      throw new Error(`Inline TypeScript exited due to signal ${signal}.`);
-    }
-    const normalizedExitCode = exitCode ?? 0;
-    if (normalizedExitCode !== 0) {
-      throw new Error(`Inline TypeScript exited with code ${normalizedExitCode}.`);
-    }
-  }
-}
-
-// src/lib/toForwardSlashPath.ts
-var toForwardSlashPath = (value) => value.replaceAll("\\", "/");
-
-// src/lib/ActionRuntime.ts
-class ActionRuntime {
-  environment;
-  workspace;
-  constructor(environment) {
-    this.environment = environment;
-    this.workspace = toForwardSlashPath(path2.resolve(environment.GITHUB_WORKSPACE || process.cwd()));
-  }
-  getActionPath() {
-    const actionPath = this.environment.ACTION_RUN_TYPESCRIPT_ACTION_PATH;
-    if (!actionPath) {
-      throw new Error("Missing internal action entry path.");
-    }
-    return path2.resolve(actionPath);
-  }
-  getExecutionEnvironment() {
-    const executionEnvironment = {
-      ...process.env,
-      ...this.environment
-    };
-    for (const name of [
-      "ACTION_RUN_TYPESCRIPT_ACTION_PATH",
-      ...deprecatedContextEnvironmentNames,
-      ...internalEnvironmentNames
-    ]) {
-      delete executionEnvironment[name];
-    }
-    return executionEnvironment;
-  }
-  async run() {
-    const runner = new NodeModuleRunner({
-      actionPath: this.getActionPath(),
-      environment: this.getExecutionEnvironment(),
-      workspace: this.workspace
-    });
-    await runner.run();
-  }
-}
-
-// src/lib/node/runInternalNodeAction.ts
-import { existsSync as existsSync2, readFileSync as readFileSync2, statSync } from "node:fs";
-import * as nodeModule from "node:module";
 import path6 from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import vm from "node:vm";
 
 // node_modules/@actions/http-client/lib/index.js
 var tunnel = __toESM(require_tunnel(), 1);
@@ -19505,14 +19369,14 @@ import { StringDecoder } from "string_decoder";
 import * as os from "os";
 import * as events from "events";
 import * as child from "child_process";
-import * as path5 from "path";
+import * as path3 from "path";
 
 // node_modules/@actions/io/lib/io.js
-import * as path4 from "path";
+import * as path2 from "path";
 
 // node_modules/@actions/io/lib/io-util.js
 import * as fs from "fs";
-import * as path3 from "path";
+import * as path from "path";
 var __awaiter2 = function(thisArg, _arguments, P, generator) {
   function adopt(value) {
     return value instanceof P ? value : new P(function(resolve) {
@@ -19578,7 +19442,7 @@ function tryGetExecutablePath(filePath, extensions) {
     }
     if (stats && stats.isFile()) {
       if (IS_WINDOWS) {
-        const upperExt = path3.extname(filePath).toUpperCase();
+        const upperExt = path.extname(filePath).toUpperCase();
         if (extensions.some((validExt) => validExt.toUpperCase() === upperExt)) {
           return filePath;
         }
@@ -19602,11 +19466,11 @@ function tryGetExecutablePath(filePath, extensions) {
       if (stats && stats.isFile()) {
         if (IS_WINDOWS) {
           try {
-            const directory = path3.dirname(filePath);
-            const upperName = path3.basename(filePath).toUpperCase();
+            const directory = path.dirname(filePath);
+            const upperName = path.basename(filePath).toUpperCase();
             for (const actualName of yield readdir(directory)) {
               if (upperName === actualName.toUpperCase()) {
-                filePath = path3.join(directory, actualName);
+                filePath = path.join(directory, actualName);
                 break;
               }
             }
@@ -19694,7 +19558,7 @@ function findInPath(tool) {
     }
     const extensions = [];
     if (IS_WINDOWS && process.env["PATHEXT"]) {
-      for (const extension of process.env["PATHEXT"].split(path4.delimiter)) {
+      for (const extension of process.env["PATHEXT"].split(path2.delimiter)) {
         if (extension) {
           extensions.push(extension);
         }
@@ -19707,12 +19571,12 @@ function findInPath(tool) {
       }
       return [];
     }
-    if (tool.includes(path4.sep)) {
+    if (tool.includes(path2.sep)) {
       return [];
     }
     const directories = [];
     if (process.env.PATH) {
-      for (const p of process.env.PATH.split(path4.delimiter)) {
+      for (const p of process.env.PATH.split(path2.delimiter)) {
         if (p) {
           directories.push(p);
         }
@@ -19720,7 +19584,7 @@ function findInPath(tool) {
     }
     const matches = [];
     for (const directory of directories) {
-      const filePath = yield tryGetExecutablePath(path4.join(directory, tool), extensions);
+      const filePath = yield tryGetExecutablePath(path2.join(directory, tool), extensions);
       if (filePath) {
         matches.push(filePath);
       }
@@ -19961,7 +19825,7 @@ class ToolRunner extends events.EventEmitter {
   exec() {
     return __awaiter4(this, undefined, undefined, function* () {
       if (!isRooted(this.toolPath) && (this.toolPath.includes("/") || IS_WINDOWS2 && this.toolPath.includes("\\"))) {
-        this.toolPath = path5.resolve(process.cwd(), this.options.cwd || process.cwd(), this.toolPath);
+        this.toolPath = path3.resolve(process.cwd(), this.options.cwd || process.cwd(), this.toolPath);
       }
       this.toolPath = yield which(this.toolPath, true);
       return new Promise((resolve2, reject) => __awaiter4(this, undefined, undefined, function* () {
@@ -20352,8 +20216,8 @@ class Context {
       if (existsSync(process.env.GITHUB_EVENT_PATH)) {
         this.payload = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, { encoding: "utf8" }));
       } else {
-        const path6 = process.env.GITHUB_EVENT_PATH;
-        process.stdout.write(`GITHUB_EVENT_PATH ${path6} does not exist${EOL3}`);
+        const path4 = process.env.GITHUB_EVENT_PATH;
+        process.stdout.write(`GITHUB_EVENT_PATH ${path4} does not exist${EOL3}`);
       }
     }
     this.eventName = process.env.GITHUB_EVENT_NAME;
@@ -23985,131 +23849,49 @@ var GitHub = Octokit.plugin(restEndpointMethods, paginateRest).defaults(defaults
 // node_modules/@actions/github/lib/github.js
 var context2 = new Context;
 
-// src/lib/node/runInternalNodeAction.ts
+// src/lib/ActionRuntime.ts
 var import_json5 = __toESM(require_lib2(), 1);
 
-// src/lib/context/createCore.ts
-import { appendFileSync, writeFileSync } from "node:fs";
-var getEnvironmentFile = (name) => {
-  const file = process.env[name];
-  if (!file) {
-    throw new Error(`Missing ${name}.`);
+// src/lib/environment.ts
+var actionInputNames = ["code", "github-token", "globals"];
+var deprecatedContextEnvironmentNames = [
+  "ACTION_RUN_TYPESCRIPT_GITHUB_CONTEXT",
+  "ACTION_RUN_TYPESCRIPT_JOB_CONTEXT",
+  "ACTION_RUN_TYPESCRIPT_MATRIX_CONTEXT",
+  "ACTION_RUN_TYPESCRIPT_RUNNER_CONTEXT",
+  "ACTION_RUN_TYPESCRIPT_STEPS_CONTEXT",
+  "ACTION_RUN_TYPESCRIPT_STRATEGY_CONTEXT",
+  "INPUT_GITHUB_CONTEXT",
+  "INPUT_JOB_CONTEXT",
+  "INPUT_MATRIX_CONTEXT",
+  "INPUT_RUNNER_CONTEXT",
+  "INPUT_STEPS",
+  "INPUT_STRATEGY_CONTEXT"
+];
+var legacyActionRuntimeInputEnvironmentNames = [
+  "ACTION_RUN_TYPESCRIPT_CODE",
+  "ACTION_RUN_TYPESCRIPT_GITHUB_TOKEN",
+  "ACTION_RUN_TYPESCRIPT_GLOBALS"
+];
+var unresolvedExpressionPattern = /^\s*\$\{\{[\s\S]*\}\}\s*$/;
+var normalizeEnvironmentValue = (value) => {
+  if (value === undefined || value === "") {
+    return;
   }
-  return file;
-};
-var toCommandValue2 = (value) => {
-  if (value === undefined || value === null) {
-    return "";
+  if (unresolvedExpressionPattern.test(value)) {
+    return;
   }
-  if (typeof value === "string") {
-    return value;
-  }
-  const serialized = JSON.stringify(value);
-  return serialized === undefined ? "" : serialized;
+  return value;
 };
-var escapeCommandValue = (value) => toCommandValue2(value).replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll(`
-`, "%0A");
-var escapeCommandProperty = (value) => escapeCommandValue(value).replaceAll(":", "%3A").replaceAll(",", "%2C");
-var toCommandPropertyString = (properties) => {
-  if (!properties) {
-    return "";
-  }
-  const entries = Object.entries(properties).filter(([, value]) => value !== undefined && value !== null && value !== "");
-  if (!entries.length) {
-    return "";
-  }
-  return ` ${entries.map(([key, value]) => `${key}=${escapeCommandProperty(value)}`).join(",")}`;
-};
-var issueCommand2 = (command, message = "", properties) => {
-  console.log(`::${command}${toCommandPropertyString(properties)}::${escapeCommandValue(message)}`);
-};
-var appendEnvironmentFileValue = (environmentFileName, name, value) => {
-  const stringValue = toCommandValue2(value);
-  const delimiter2 = `gha_delimiter_${globalThis.crypto.randomUUID()}`;
-  const serializedLine = /[\n\r]/.test(stringValue) ? `${name}<<${delimiter2}
-${stringValue}
-${delimiter2}
-` : `${name}=${stringValue}
-`;
-  appendFileSync(getEnvironmentFile(environmentFileName), serializedLine, "utf8");
-};
-var appendEnvironmentFileLine = (environmentFileName, value) => {
-  appendFileSync(getEnvironmentFile(environmentFileName), `${toCommandValue2(value)}
-`, "utf8");
-};
-var startGroup = (name) => {
-  issueCommand2("group", name);
-};
-var endGroup = () => {
-  issueCommand2("endgroup");
-};
-var createCore = () => {
-  const summary2 = {
-    append(value) {
-      appendFileSync(getEnvironmentFile("GITHUB_STEP_SUMMARY"), toCommandValue2(value), "utf8");
-    },
-    clear() {
-      writeFileSync(getEnvironmentFile("GITHUB_STEP_SUMMARY"), "", "utf8");
-    },
-    write(value) {
-      writeFileSync(getEnvironmentFile("GITHUB_STEP_SUMMARY"), toCommandValue2(value), "utf8");
+var getEnvironmentValue = (environment, ...names) => {
+  for (const name of names) {
+    const value = normalizeEnvironmentValue(environment[name]);
+    if (value !== undefined) {
+      return value;
     }
-  };
-  return {
-    addPath(inputPath) {
-      appendEnvironmentFileLine("GITHUB_PATH", inputPath);
-    },
-    debug(message) {
-      issueCommand2("debug", message);
-    },
-    endGroup,
-    error(message, properties) {
-      issueCommand2("error", message, properties);
-    },
-    exportVariable(name, value) {
-      appendEnvironmentFileValue("GITHUB_ENV", name, value);
-    },
-    getState(name) {
-      return process.env[`STATE_${name}`] || "";
-    },
-    async group(name, run) {
-      startGroup(name);
-      try {
-        return await run();
-      } finally {
-        endGroup();
-      }
-    },
-    info(message) {
-      console.log(toCommandValue2(message));
-    },
-    isDebug() {
-      return process.env.RUNNER_DEBUG === "1";
-    },
-    notice(message, properties) {
-      issueCommand2("notice", message, properties);
-    },
-    saveState(name, value) {
-      appendEnvironmentFileValue("GITHUB_STATE", name, value);
-    },
-    setFailed(message) {
-      const normalizedMessage = message instanceof Error ? message.stack || message.message : message;
-      issueCommand2("error", normalizedMessage);
-      process.exitCode = 1;
-    },
-    setOutput(name, value) {
-      appendEnvironmentFileValue("GITHUB_OUTPUT", name, value);
-    },
-    setSecret(secret) {
-      issueCommand2("add-mask", secret);
-    },
-    startGroup,
-    summary: summary2,
-    warning(message, properties) {
-      issueCommand2("warning", message, properties);
-    }
-  };
+  }
 };
+var toInputEnvironmentName = (name) => `INPUT_${name.replaceAll(" ", "_").toUpperCase()}`;
 
 // src/lib/github/getCurrentWorkflowJob.ts
 var listWorkflowJobs = async ({ fetch: fetchImplementation = fetch, github, token }) => {
@@ -24302,150 +24084,507 @@ var toWorkflowStepsFallback = (workflowJob) => {
   };
 };
 
-// src/lib/node/runInternalNodeAction.ts
-var { createRequire: createRequire2, isBuiltin } = nodeModule;
-var supportedLocalExtensions = [".ts", ".mts", ".cts", ".js", ".mjs", ".json"];
-var supportedLocalExtensionList = supportedLocalExtensions.join(", ");
-var unsupportedJsxExtensions = new Set([".tsx", ".jsx"]);
-var getStripTypeScriptTypes = () => {
-  const implementation = nodeModule.stripTypeScriptTypes;
-  if (typeof implementation !== "function") {
-    throw new TypeError("node:module.stripTypeScriptTypes is unavailable in this Node runtime.");
+// src/lib/node/NodeModuleRunner.ts
+import { spawn as spawn2 } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os3 from "node:os";
+import path4 from "node:path";
+import { pathToFileURL } from "node:url";
+
+// src/lib/node/createVmRunnerSource.ts
+var createVmRunnerSource = () => [
+  "import {appendFileSync, readFileSync, writeFileSync} from 'node:fs'",
+  "import {createRequire, isBuiltin} from 'node:module'",
+  "import path from 'node:path'",
+  "import {fileURLToPath, pathToFileURL} from 'node:url'",
+  "import vm from 'node:vm'",
+  "",
+  "const [payloadFile, bundleFile] = process.argv.slice(2)",
+  "if (!payloadFile || !bundleFile) { throw new Error('Missing child runner arguments.') }",
+  "const payload = JSON.parse(readFileSync(payloadFile, 'utf8'))",
+  "const bundle = readFileSync(bundleFile, 'utf8')",
+  "if (!payload || typeof payload !== 'object' || Array.isArray(payload)) { throw new TypeError('Invalid VM runner payload.') }",
+  "if (!payload.bindings || typeof payload.bindings !== 'object' || Array.isArray(payload.bindings)) { throw new TypeError('Invalid VM runner bindings payload.') }",
+  "if (!payload.globals || typeof payload.globals !== 'object' || Array.isArray(payload.globals)) { throw new TypeError('Invalid VM runner globals payload.') }",
+  "if (typeof payload.identifier !== 'string' || !payload.identifier) { throw new TypeError('Invalid VM runner module identifier.') }",
+  "",
+  "const defineGlobalValue = (target, name, value) => {",
+  "  Reflect.defineProperty(target, name, {",
+  "    configurable: true,",
+  "    enumerable: true,",
+  "    value,",
+  "    writable: true,",
+  "  })",
+  "}",
+  "const createGlobalValuesRecord = (...sources) => {",
+  "  const record = Object.create(null)",
+  "  for (const source of sources) {",
+  "    for (const [name, value] of Object.entries(source)) {",
+  "      defineGlobalValue(record, name, value)",
+  "    }",
+  "  }",
+  "  return record",
+  "}",
+  "const createExecutionContext = globalValues => {",
+  "  const sandbox = Object.create(null)",
+  "  for (const key of Reflect.ownKeys(globalThis)) {",
+  "    if (key === 'crypto' || key === 'global' || key === 'globalThis' || key === 'self') {",
+  "      continue",
+  "    }",
+  "    const descriptor = Reflect.getOwnPropertyDescriptor(globalThis, key)",
+  "    if (descriptor) {",
+  "      Reflect.defineProperty(sandbox, key, descriptor)",
+  "    }",
+  "  }",
+  "  for (const [name, value] of Object.entries(globalValues)) {",
+  "    defineGlobalValue(sandbox, name, value)",
+  "  }",
+  "  Reflect.defineProperty(sandbox, 'global', {configurable: true, enumerable: false, value: sandbox, writable: true})",
+  "  Reflect.defineProperty(sandbox, 'globalThis', {configurable: true, enumerable: false, value: sandbox, writable: true})",
+  "  Reflect.defineProperty(sandbox, 'self', {configurable: true, enumerable: false, value: sandbox, writable: true})",
+  "  Reflect.defineProperty(sandbox, 'crypto', {configurable: true, enumerable: false, value: globalThis.crypto, writable: true})",
+  "  return vm.createContext(sandbox)",
+  "}",
+  "",
+  "const getEnvironmentFile = name => {",
+  "  const file = process.env[name]",
+  "  if (!file) {",
+  "    throw new Error(`Missing ${name}.`)",
+  "  }",
+  "  return file",
+  "}",
+  "const toCommandValue = value => {",
+  "  if (value === undefined || value === null) {",
+  "    return ''",
+  "  }",
+  "  if (typeof value === 'string') {",
+  "    return value",
+  "  }",
+  "  const serialized = JSON.stringify(value)",
+  "  return serialized === undefined ? '' : serialized",
+  "}",
+  String.raw`const escapeCommandValue = value => toCommandValue(value).replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A')`,
+  "const escapeCommandProperty = value => escapeCommandValue(value).replaceAll(':', '%3A').replaceAll(',', '%2C')",
+  "const toCommandPropertyString = properties => {",
+  "  if (!properties) {",
+  "    return ''",
+  "  }",
+  "  const entries = Object.entries(properties).filter(([, value]) => value !== undefined && value !== null && value !== '')",
+  "  if (!entries.length) {",
+  "    return ''",
+  "  }",
+  "  return ` ${entries.map(([key, value]) => `${key}=${escapeCommandProperty(value)}`).join(',')}`",
+  "}",
+  "const issueCommand = (command, message = '', properties) => {",
+  "  console.log(`::${command}${toCommandPropertyString(properties)}::${escapeCommandValue(message)}`)",
+  "}",
+  "const appendEnvironmentFileValue = (environmentFileName, name, value) => {",
+  "  const stringValue = toCommandValue(value)",
+  "  const delimiter = `gha_delimiter_${globalThis.crypto.randomUUID()}`",
+  "  const serializedLine = /[\\n\\r]/.test(stringValue) ? `${name}<<${delimiter}\\n${stringValue}\\n${delimiter}\\n` : `${name}=${stringValue}\\n`",
+  "  appendFileSync(getEnvironmentFile(environmentFileName), serializedLine, 'utf8')",
+  "}",
+  "const appendEnvironmentFileLine = (environmentFileName, value) => {",
+  "  appendFileSync(getEnvironmentFile(environmentFileName), `${toCommandValue(value)}\\n`, 'utf8')",
+  "}",
+  "const startGroup = name => { issueCommand('group', name) }",
+  "const endGroup = () => { issueCommand('endgroup') }",
+  "const createCore = () => {",
+  "  const summary = {",
+  "    append(value) {",
+  "      appendFileSync(getEnvironmentFile('GITHUB_STEP_SUMMARY'), toCommandValue(value), 'utf8')",
+  "    },",
+  "    clear() {",
+  "      writeFileSync(getEnvironmentFile('GITHUB_STEP_SUMMARY'), '', 'utf8')",
+  "    },",
+  "    write(value) {",
+  "      writeFileSync(getEnvironmentFile('GITHUB_STEP_SUMMARY'), toCommandValue(value), 'utf8')",
+  "    },",
+  "  }",
+  "  return {",
+  "    addPath(inputPath) {",
+  "      appendEnvironmentFileLine('GITHUB_PATH', inputPath)",
+  "    },",
+  "    debug(message) {",
+  "      issueCommand('debug', message)",
+  "    },",
+  "    endGroup,",
+  "    error(message, properties) {",
+  "      issueCommand('error', message, properties)",
+  "    },",
+  "    exportVariable(name, value) {",
+  "      appendEnvironmentFileValue('GITHUB_ENV', name, value)",
+  "    },",
+  "    getState(name) {",
+  "      return process.env[`STATE_${name}`] || ''",
+  "    },",
+  "    async group(name, run) {",
+  "      startGroup(name)",
+  "      try {",
+  "        return await run()",
+  "      } finally {",
+  "        endGroup()",
+  "      }",
+  "    },",
+  "    info(message) {",
+  "      console.log(toCommandValue(message))",
+  "    },",
+  "    isDebug() {",
+  "      return process.env.RUNNER_DEBUG === '1'",
+  "    },",
+  "    notice(message, properties) {",
+  "      issueCommand('notice', message, properties)",
+  "    },",
+  "    saveState(name, value) {",
+  "      appendEnvironmentFileValue('GITHUB_STATE', name, value)",
+  "    },",
+  "    setFailed(message) {",
+  "      const normalizedMessage = message instanceof Error ? message.stack || message.message : message",
+  "      issueCommand('error', normalizedMessage)",
+  "      process.exitCode = 1",
+  "    },",
+  "    setOutput(name, value) {",
+  "      appendEnvironmentFileValue('GITHUB_OUTPUT', name, value)",
+  "    },",
+  "    setSecret(secret) {",
+  "      issueCommand('add-mask', secret)",
+  "    },",
+  "    startGroup,",
+  "    summary,",
+  "    warning(message, properties) {",
+  "      issueCommand('warning', message, properties)",
+  "    },",
+  "  }",
+  "}",
+  "",
+  "class NodeBundleModuleRuntime {",
+  "  constructor(code, identifier, globals) {",
+  "    this.code = code",
+  "    this.context = createExecutionContext(globals)",
+  "    this.identifier = identifier",
+  "    this.moduleCache = new Map()",
+  "  }",
+  "  async ensureEvaluated(module) {",
+  "    if (module.status === 'unlinked') {",
+  "      await this.ensureLinked(module)",
+  "    }",
+  "    if (module.status === 'linked') {",
+  "      await module.evaluate()",
+  "    }",
+  "  }",
+  "  async ensureLinked(module) {",
+  "    if (module.status === 'unlinked') {",
+  "      await module.link((specifier, referencingModule) => this.linkModule(specifier, referencingModule))",
+  "    }",
+  "  }",
+  "  async evaluate() {",
+  "    const rootModule = new vm.SourceTextModule(this.code, {",
+  "      context: this.context,",
+  "      identifier: this.identifier,",
+  "      importModuleDynamically: (specifier, referencingModule) => this.importModuleDynamically(specifier, referencingModule),",
+  "      initializeImportMeta: importMeta => {",
+  "        importMeta.url = this.identifier",
+  "        if (this.identifier.startsWith('file:')) {",
+  "          const filename = fileURLToPath(this.identifier)",
+  "          importMeta.dirname = path.dirname(filename)",
+  "          importMeta.filename = filename",
+  "        }",
+  "      },",
+  "    })",
+  "    await this.ensureLinked(rootModule)",
+  "    await this.ensureEvaluated(rootModule)",
+  "  }",
+  "  async importModuleDynamically(specifier, referencingModule) {",
+  "    const linkedModule = await this.linkModule(specifier, referencingModule)",
+  "    await this.ensureLinked(linkedModule)",
+  "    await this.ensureEvaluated(linkedModule)",
+  "    return linkedModule",
+  "  }",
+  "  async linkModule(specifier, referencingModule) {",
+  "    const parentIdentifier = referencingModule?.identifier || this.identifier",
+  "    const resolvedSpecifier = this.resolveExternalModuleSpecifier(specifier, parentIdentifier)",
+  "    const cachedModule = this.moduleCache.get(resolvedSpecifier)",
+  "    if (cachedModule) {",
+  "      return cachedModule",
+  "    }",
+  "    const namespace = await import(resolvedSpecifier)",
+  "    const exportNames = Object.getOwnPropertyNames(namespace)",
+  "    const module = new vm.SyntheticModule(exportNames, () => {",
+  "      for (const exportName of exportNames) {",
+  "        module.setExport(exportName, namespace[exportName])",
+  "      }",
+  "    }, {",
+  "      context: this.context,",
+  "      identifier: resolvedSpecifier,",
+  "    })",
+  "    this.moduleCache.set(resolvedSpecifier, module)",
+  "    return module",
+  "  }",
+  "  resolveExternalModuleSpecifier(specifier, parentIdentifier) {",
+  "    if (specifier.startsWith('node:')) {",
+  "      return specifier",
+  "    }",
+  "    if (isBuiltin(specifier)) {",
+  "      return `node:${specifier}`",
+  "    }",
+  "    const requireParentPath = parentIdentifier.startsWith('file:') ? fileURLToPath(parentIdentifier) : path.join(process.cwd(), '__action_run_typescript_require__.mjs')",
+  "    const resolvedSpecifier = createRequire(requireParentPath).resolve(specifier)",
+  "    return resolvedSpecifier.startsWith('node:') ? resolvedSpecifier : pathToFileURL(resolvedSpecifier).href",
+  "  }",
+  "}",
+  "",
+  "const globals = createGlobalValuesRecord({...payload.bindings, core: createCore()}, payload.globals)",
+  "const runtime = new NodeBundleModuleRuntime(bundle, payload.identifier, globals)",
+  "await runtime.evaluate()",
+  ""
+].join(`
+`);
+
+// src/lib/node/NodeModuleRunner.ts
+var createSpawnEnvironment = (environment) => Object.fromEntries(Object.entries(environment).filter(([, value]) => value !== undefined));
+
+class NodeModuleRunner {
+  options;
+  constructor(options) {
+    this.options = options;
   }
-  return implementation;
-};
-var isDirectory2 = (filePath) => {
-  try {
-    return statSync(filePath).isDirectory();
-  } catch {
-    return false;
+  getTempRoot() {
+    return this.options.environment.RUNNER_TEMP || os3.tmpdir();
   }
-};
-var isFile = (filePath) => {
-  try {
-    return statSync(filePath).isFile();
-  } catch {
-    return false;
+  getVirtualBundleIdentifier() {
+    return pathToFileURL(path4.join(this.options.workspace, "__action_run_typescript_bundle__.mjs")).href;
   }
-};
-var isProbablyJsxFailure = (error, source, label) => {
-  const normalizedLabel = label.toLowerCase();
-  if (normalizedLabel.endsWith(".tsx") || normalizedLabel.endsWith(".jsx")) {
+  async run() {
+    mkdirSync(this.getTempRoot(), { recursive: true });
+    const temporaryFolder = mkdtempSync(path4.join(this.getTempRoot(), "action-run-typescript-"));
+    const bundleFile = path4.join(temporaryFolder, "bundle.mjs");
+    const payloadFile = path4.join(temporaryFolder, "payload.json");
+    const runnerFile = path4.join(temporaryFolder, "runner.mjs");
+    writeFileSync(bundleFile, this.options.bundle, "utf8");
+    writeFileSync(payloadFile, JSON.stringify({
+      bindings: this.options.bindings,
+      globals: this.options.globals,
+      identifier: this.getVirtualBundleIdentifier()
+    }), "utf8");
+    writeFileSync(runnerFile, createVmRunnerSource(), "utf8");
+    try {
+      const child2 = spawn2(process.execPath, [
+        "--disable-warning=ExperimentalWarning",
+        "--experimental-vm-modules",
+        path4.resolve(runnerFile),
+        path4.resolve(payloadFile),
+        path4.resolve(bundleFile)
+      ], {
+        cwd: this.options.workspace,
+        env: createSpawnEnvironment(this.options.environment),
+        stdio: "inherit"
+      });
+      const { exitCode, signal } = await new Promise((resolve2, reject) => {
+        child2.once("error", reject);
+        child2.once("close", (closedExitCode, closedSignal) => {
+          resolve2({
+            exitCode: closedExitCode,
+            signal: closedSignal
+          });
+        });
+      });
+      if (signal) {
+        throw new Error(`Inline TypeScript exited due to signal ${signal}.`);
+      }
+      const normalizedExitCode = exitCode ?? 0;
+      if (normalizedExitCode !== 0) {
+        throw new Error(`Inline TypeScript exited with code ${normalizedExitCode}.`);
+      }
+    } finally {
+      rmSync(temporaryFolder, {
+        force: true,
+        recursive: true
+      });
+    }
+  }
+}
+
+// src/lib/rspack/RspackInlineScriptBundler.ts
+import { randomUUID } from "node:crypto";
+import { mkdirSync as mkdirSync2, readFileSync as readFileSync2, rmSync as rmSync2, writeFileSync as writeFileSync2 } from "node:fs";
+import os4 from "node:os";
+import path5 from "node:path";
+import { promisify } from "node:util";
+import rspack from "@rspack/core";
+var isBundledRequest = (request2) => {
+  if (!request2) {
     return true;
   }
+  return request2.startsWith(".") || request2.startsWith("/") || request2.startsWith("file:") || request2.startsWith("#") || path5.isAbsolute(request2);
+};
+var isProbablyJsxParseFailure = (error) => {
   const message = error instanceof Error ? error.message : String(error);
-  return message.includes("Unexpected token '<'") || message.includes("JSX") || source.includes("</") && message.includes("Unexpected token");
+  return message.includes("JSX") || message.includes("Unexpected token") && message.includes("<") || message.includes("files with the .mts or .cts extension");
 };
-var isLocalFileSpecifier = (specifier) => specifier.startsWith("./") || specifier.startsWith("../") || specifier.startsWith("file:") || path6.isAbsolute(specifier);
-var createJsxUnsupportedError = (label) => new Error(`TSX/JSX syntax is not supported by action-run-typescript runtime (${label}).`);
-var createModuleSourceError = (phase, error, source, label) => {
-  if (isProbablyJsxFailure(error, source, label)) {
-    return createJsxUnsupportedError(label);
+var closeCompiler = (compiler) => promisify(compiler.close.bind(compiler))();
+var runCompiler = (compiler) => promisify(compiler.run.bind(compiler))();
+var createCompiler = ({ entryFile, outputFolder, workspace }) => rspack({
+  context: workspace,
+  mode: "none",
+  target: "node",
+  devtool: false,
+  entry: entryFile,
+  experiments: {
+    outputModule: true,
+    topLevelAwait: true
+  },
+  externalsPresets: {
+    node: true
+  },
+  externalsType: "module",
+  externals: [
+    ({ request: request2 }) => {
+      if (isBundledRequest(request2)) {
+        return;
+      }
+      return request2;
+    }
+  ],
+  module: {
+    rules: [
+      {
+        test: /\.[cm]?[jt]sx?$/,
+        type: "javascript/auto",
+        loader: "builtin:swc-loader",
+        options: {
+          detectSyntax: "auto",
+          jsc: {
+            target: "es2023",
+            transform: {
+              react: {
+                development: false,
+                runtime: "automatic"
+              }
+            }
+          }
+        }
+      }
+    ]
+  },
+  optimization: {
+    minimize: false,
+    runtimeChunk: false,
+    splitChunks: false
+  },
+  output: {
+    chunkFormat: "module",
+    chunkLoading: false,
+    filename: "bundle.mjs",
+    library: {
+      type: "module"
+    },
+    module: true,
+    path: outputFolder
+  },
+  resolve: {
+    extensions: [".tsx", ".ts", ".jsx", ".js", ".mts", ".cts", ".mjs", ".cjs", ".json"]
   }
-  return new Error(`Failed to ${phase} module ${label}.`, { cause: error });
+});
+var createEntrySource = (code) => `export {}
+
+${code}
+`;
+var getRspackOutput = async (compiler, outputFile) => {
+  try {
+    const stats = await runCompiler(compiler);
+    if (stats.hasErrors()) {
+      throw new Error(stats.toString());
+    }
+    return readFileSync2(outputFile, "utf8");
+  } finally {
+    await closeCompiler(compiler);
+  }
 };
-var defineGlobalValue = (target, name, value) => {
-  Reflect.defineProperty(target, name, {
-    configurable: true,
-    enumerable: true,
-    value,
-    writable: true
-  });
-};
-var createGlobalValuesRecord = (...sources) => {
-  const record = Object.create(null);
-  for (const source of sources) {
-    for (const [name, value] of Object.entries(source)) {
-      defineGlobalValue(record, name, value);
+
+class RspackInlineScriptBundler {
+  options;
+  constructor(options) {
+    this.options = options;
+  }
+  async bundle(code) {
+    let tsError;
+    try {
+      return await this.bundleWithExtension(code, ".ts");
+    } catch (error) {
+      tsError = error;
+    }
+    try {
+      return await this.bundleWithExtension(code, ".tsx");
+    } catch (tsxError) {
+      if (isProbablyJsxParseFailure(tsError)) {
+        throw tsxError;
+      }
+      throw tsError;
     }
   }
-  return record;
-};
-var createExecutionContext = (globalValues) => {
-  const sandbox = Object.create(null);
-  for (const key of Reflect.ownKeys(globalThis)) {
-    if (key === "crypto" || key === "global" || key === "globalThis" || key === "self") {
+  async bundleWithExtension(code, extension) {
+    const temporaryRoot = this.options.tempFolder || os4.tmpdir();
+    mkdirSync2(temporaryRoot, { recursive: true });
+    const nonce = randomUUID();
+    const entryFile = path5.join(this.options.workspace, `__action_run_typescript_inline__.${nonce}${extension}`);
+    const outputFolder = path5.join(temporaryRoot, `action-run-typescript-rspack-${nonce}`);
+    const outputFile = path5.join(outputFolder, "bundle.mjs");
+    writeFileSync2(entryFile, createEntrySource(code), "utf8");
+    mkdirSync2(outputFolder, { recursive: true });
+    const compiler = createCompiler({
+      entryFile,
+      outputFolder,
+      workspace: this.options.workspace
+    });
+    try {
+      return await getRspackOutput(compiler, outputFile);
+    } finally {
+      rmSync2(outputFolder, {
+        force: true,
+        recursive: true
+      });
+      rmSync2(entryFile, { force: true });
+    }
+  }
+}
+
+// src/lib/toForwardSlashPath.ts
+var toForwardSlashPath = (value) => value.replaceAll("\\", "/");
+
+// src/lib/withPatchedProcessEnvironment.ts
+var applyEnvironment = (source) => {
+  for (const name of Object.keys(process.env)) {
+    if (Object.hasOwn(source, name)) {
       continue;
     }
-    const descriptor = Reflect.getOwnPropertyDescriptor(globalThis, key);
-    if (descriptor) {
-      Reflect.defineProperty(sandbox, key, descriptor);
+    delete process.env[name];
+  }
+  for (const [name, value] of Object.entries(source)) {
+    if (value === undefined) {
+      delete process.env[name];
+      continue;
     }
+    process.env[name] = value;
   }
-  for (const [name, value] of Object.entries(globalValues)) {
-    defineGlobalValue(sandbox, name, value);
-  }
-  Reflect.defineProperty(sandbox, "global", {
-    configurable: true,
-    enumerable: false,
-    value: sandbox,
-    writable: true
-  });
-  Reflect.defineProperty(sandbox, "globalThis", {
-    configurable: true,
-    enumerable: false,
-    value: sandbox,
-    writable: true
-  });
-  Reflect.defineProperty(sandbox, "self", {
-    configurable: true,
-    enumerable: false,
-    value: sandbox,
-    writable: true
-  });
-  Reflect.defineProperty(sandbox, "crypto", {
-    configurable: true,
-    enumerable: false,
-    value: globalThis.crypto,
-    writable: true
-  });
-  return vm.createContext(sandbox);
 };
-var getActionInput = (name, options) => normalizeEnvironmentValue(getInput(name, options));
-var getCode = (environment) => {
-  const code = getActionInput("code", { trimWhitespace: false }) ?? getEnvironmentValue(environment, "ACTION_RUN_TYPESCRIPT_CODE");
-  if (code === undefined) {
-    throw new Error('Missing action input "code".');
-  }
-  return code;
-};
-var getGitHubToken = (environment) => getActionInput("github-token", { trimWhitespace: false }) ?? getEnvironmentValue(environment, "ACTION_RUN_TYPESCRIPT_GITHUB_TOKEN", "GITHUB_TOKEN");
-var parseGlobals = (environment) => {
-  const rawGlobals = getActionInput("globals", { trimWhitespace: false }) ?? getEnvironmentValue(environment, "ACTION_RUN_TYPESCRIPT_GLOBALS");
-  if (rawGlobals === undefined || rawGlobals.trim() === "") {
-    return {};
-  }
-  let parsed;
+var withPatchedProcessEnvironment = async (environment, run) => {
+  const originalEnvironment = { ...process.env };
+  const patchedEnvironment = {
+    ...originalEnvironment,
+    ...environment
+  };
+  applyEnvironment(patchedEnvironment);
   try {
-    parsed = import_json5.default.parse(rawGlobals);
-  } catch (error) {
-    throw new Error('Failed to parse action input "globals".', { cause: error });
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new TypeError('Action input "globals" must evaluate to an object.');
-  }
-  return parsed;
-};
-var setGitHubTokenEnvironmentValue = (environment, token) => {
-  if (!token) {
-    return;
-  }
-  if (!environment.GITHUB_TOKEN) {
-    environment.GITHUB_TOKEN = token;
-  }
-  if (!process.env.GITHUB_TOKEN) {
-    process.env.GITHUB_TOKEN = token;
+    return await run();
+  } finally {
+    applyEnvironment(originalEnvironment);
   }
 };
-var stripRuntimeEnvironmentValues = (environment) => {
-  for (const name of [
-    ...internalEnvironmentNames,
-    ...deprecatedContextEnvironmentNames,
-    ...legacyActionRuntimeInputEnvironmentNames,
-    ...actionInputNames.map(toInputEnvironmentName)
-  ]) {
-    delete environment[name];
-  }
+
+// src/lib/ActionRuntime.ts
+var createToolkitGitHubContext = () => {
+  const GitHubContext = context2.constructor;
+  return new GitHubContext;
 };
 var toJobContext = (githubJobId, workflowJob) => {
   const job = {};
@@ -24487,279 +24626,123 @@ var resolveRunnerOperatingSystem = () => {
   }
   return platform2.platform;
 };
-var toRunnerContext = (environment) => ({
-  arch: getEnvironmentValue(environment, "RUNNER_ARCH") ?? exports_platform.arch,
-  debug: isDebug(),
-  name: getEnvironmentValue(environment, "RUNNER_NAME"),
-  os: getEnvironmentValue(environment, "RUNNER_OS") ?? resolveRunnerOperatingSystem(),
-  temp: getEnvironmentValue(environment, "RUNNER_TEMP"),
-  tool_cache: getEnvironmentValue(environment, "RUNNER_TOOL_CACHE")
-});
-var getBindings = async (environment, token) => {
-  const github = toActionRuntimeGitHubContext(context2, token);
-  const workflowJob = await getCurrentWorkflowJob({
-    github,
-    runnerName: getEnvironmentValue(environment, "RUNNER_NAME"),
-    token
-  });
-  return {
-    core: createCore(),
-    github,
-    job: toJobContext(context2.job, workflowJob),
-    matrix: {},
-    runner: toRunnerContext(environment),
-    steps: workflowJob ? toWorkflowStepsFallback(workflowJob) : {},
-    strategy: {},
-    workflowJob: workflowJob ?? null
-  };
-};
-var toFileIdentifierLabel = (identifier) => {
-  if (identifier.startsWith("file:")) {
-    return fileURLToPath(identifier);
-  }
-  return identifier;
-};
-var transformTypeScriptSource = (source, label) => {
-  try {
-    return getStripTypeScriptTypes()(source, { mode: "transform" });
-  } catch (error) {
-    throw createModuleSourceError("transform", error, source, label);
-  }
-};
 
-class NodeInlineModuleRuntime {
-  context;
-  linkModule = async (specifier, referencingModule) => {
-    const parentIdentifier = referencingModule?.identifier || this.rootModuleIdentifier;
-    if (isLocalFileSpecifier(specifier)) {
-      return this.loadLocalModule(specifier, parentIdentifier);
-    }
-    return this.loadExternalModule(specifier, parentIdentifier);
-  };
-  moduleCache = new Map;
-  pendingModuleCache = new Map;
-  rootModuleIdentifier;
+class ActionRuntime {
+  environment;
   workspace;
-  constructor(globalValues, workspace) {
-    this.context = createExecutionContext(globalValues);
-    const normalizedWorkspace = path6.resolve(workspace);
-    this.rootModuleIdentifier = pathToFileURL(path6.join(normalizedWorkspace, "__action_run_typescript_inline__.ts")).href;
-    this.workspace = normalizedWorkspace;
+  constructor(environment) {
+    this.environment = environment;
+    this.workspace = toForwardSlashPath(path6.resolve(environment.GITHUB_WORKSPACE || process.cwd()));
   }
-  createJsonModule(identifier) {
-    const filePath = fileURLToPath(identifier);
-    const rawJson = readFileSync2(filePath, "utf8");
-    let value;
-    try {
-      value = JSON.parse(rawJson);
-    } catch (error) {
-      throw new Error(`Failed to parse JSON module ${filePath}.`, { cause: error });
-    }
-    const module = new vm.SyntheticModule(["default"], () => {
-      module.setExport("default", value);
-    }, {
-      context: this.context,
-      identifier
-    });
-    return module;
-  }
-  createTextModule({ identifier, label, source, transformTypeScript }) {
-    const compiledSource = transformTypeScript ? transformTypeScriptSource(source, label) : source;
-    try {
-      return new vm.SourceTextModule(compiledSource, {
-        context: this.context,
-        identifier,
-        importModuleDynamically: (specifier, referencingModule) => this.importModuleDynamically(specifier, referencingModule),
-        initializeImportMeta: (importMeta) => {
-          importMeta.url = identifier;
-          if (identifier.startsWith("file:")) {
-            const filename = fileURLToPath(identifier);
-            importMeta.dirname = path6.dirname(filename);
-            importMeta.filename = filename;
-          }
-        }
-      });
-    } catch (error) {
-      throw createModuleSourceError("compile", error, compiledSource, label);
-    }
-  }
-  async ensureEvaluated(module) {
-    if (module.status === "unlinked") {
-      await this.ensureLinked(module);
-    }
-    if (module.status === "linked") {
-      await module.evaluate();
-    }
-  }
-  async ensureLinked(module) {
-    if (module.status === "unlinked") {
-      await module.link(this.linkModule);
-    }
-  }
-  async evaluate(code) {
-    const rootModule = await this.getOrCreateModule(this.rootModuleIdentifier, () => this.createTextModule({
-      identifier: this.rootModuleIdentifier,
-      label: "inline TypeScript",
-      source: code,
-      transformTypeScript: true
-    }));
-    await this.ensureLinked(rootModule);
-    await this.ensureEvaluated(rootModule);
-  }
-  async getOrCreateModule(identifier, createModule) {
-    const cachedModule = this.moduleCache.get(identifier);
-    if (cachedModule) {
-      return cachedModule;
-    }
-    const pendingModule = this.pendingModuleCache.get(identifier);
-    if (pendingModule) {
-      return pendingModule;
-    }
-    const createdModule = (async () => {
-      try {
-        const module = await createModule();
-        this.moduleCache.set(identifier, module);
-        return module;
-      } finally {
-        this.pendingModuleCache.delete(identifier);
-      }
-    })();
-    this.pendingModuleCache.set(identifier, createdModule);
-    return createdModule;
-  }
-  async importModuleDynamically(specifier, referencingModule) {
-    const linkedModule = await this.linkModule(specifier, referencingModule);
-    await this.ensureLinked(linkedModule);
-    await this.ensureEvaluated(linkedModule);
-    return linkedModule;
-  }
-  async loadExternalModule(specifier, parentIdentifier) {
-    const resolvedSpecifier = this.resolveExternalModuleSpecifier(specifier, parentIdentifier);
-    return this.getOrCreateModule(`external:${resolvedSpecifier}`, async () => {
-      const namespace = await import(resolvedSpecifier);
-      const exportNames = Object.getOwnPropertyNames(namespace);
-      const module = new vm.SyntheticModule(exportNames, () => {
-        for (const exportName of exportNames) {
-          module.setExport(exportName, namespace[exportName]);
-        }
-      }, {
-        context: this.context,
-        identifier: resolvedSpecifier
-      });
-      return module;
+  createBundler() {
+    return new RspackInlineScriptBundler({
+      tempFolder: this.getEnvironmentValue("RUNNER_TEMP"),
+      workspace: this.workspace
     });
   }
-  async loadLocalModule(specifier, parentIdentifier) {
-    const resolvedPath = this.resolveLocalModulePath(specifier, parentIdentifier);
-    const identifier = pathToFileURL(resolvedPath).href;
-    return this.getOrCreateModule(identifier, () => {
-      const extension = path6.extname(resolvedPath).toLowerCase();
-      if (extension === ".json") {
-        return this.createJsonModule(identifier);
-      }
-      if (unsupportedJsxExtensions.has(extension)) {
-        throw createJsxUnsupportedError(resolvedPath);
-      }
-      const source = readFileSync2(resolvedPath, "utf8");
-      return this.createTextModule({
-        identifier,
-        label: resolvedPath,
-        source,
-        transformTypeScript: extension === ".ts" || extension === ".mts" || extension === ".cts"
+  async createExecutionState() {
+    return withPatchedProcessEnvironment(this.environment, async () => {
+      const code = this.getCode();
+      const globals = this.parseGlobals();
+      const token = this.getGitHubToken();
+      const toolkitGitHubContext = createToolkitGitHubContext();
+      const github = toActionRuntimeGitHubContext(toolkitGitHubContext, token);
+      const workflowJob = await getCurrentWorkflowJob({
+        github,
+        runnerName: this.getEnvironmentValue("RUNNER_NAME"),
+        token
       });
+      return {
+        bindings: {
+          github,
+          job: toJobContext(toolkitGitHubContext.job, workflowJob),
+          matrix: {},
+          runner: this.getRunnerContext(),
+          steps: workflowJob ? toWorkflowStepsFallback(workflowJob) : {},
+          strategy: {},
+          workflowJob: workflowJob ?? null
+        },
+        code,
+        globals,
+        token
+      };
     });
   }
-  resolveDirectoryIndexPath(directoryPath, specifier, parentIdentifier) {
-    for (const extension of supportedLocalExtensions) {
-      const indexFilePath = path6.join(directoryPath, `index${extension}`);
-      if (isFile(indexFilePath)) {
-        return path6.resolve(indexFilePath);
-      }
-    }
-    for (const extension of unsupportedJsxExtensions) {
-      const jsxIndexFilePath = path6.join(directoryPath, `index${extension}`);
-      if (isFile(jsxIndexFilePath)) {
-        throw createJsxUnsupportedError(jsxIndexFilePath);
-      }
-    }
-    throw new Error(`Cannot resolve local module ${JSON.stringify(specifier)} from ${toFileIdentifierLabel(parentIdentifier)}. Supported extensions: ${supportedLocalExtensionList}.`);
+  getActionInput(name, options) {
+    return normalizeEnvironmentValue(getInput(name, options));
   }
-  resolveExternalModuleSpecifier(specifier, parentIdentifier) {
-    if (specifier.startsWith("node:")) {
-      return specifier;
+  getCode() {
+    const code = this.getActionInput("code", { trimWhitespace: false }) ?? this.getEnvironmentValue("ACTION_RUN_TYPESCRIPT_CODE");
+    if (code === undefined) {
+      throw new Error('Missing action input "code".');
     }
-    if (isBuiltin(specifier)) {
-      return `node:${specifier}`;
+    return code;
+  }
+  getEnvironmentValue(...names) {
+    return getEnvironmentValue(this.environment, ...names);
+  }
+  getExecutionEnvironment(token = this.getGitHubToken()) {
+    const executionEnvironment = {
+      ...process.env,
+      ...this.environment
+    };
+    for (const name of [
+      ...deprecatedContextEnvironmentNames,
+      ...legacyActionRuntimeInputEnvironmentNames,
+      ...actionInputNames.map(toInputEnvironmentName)
+    ]) {
+      delete executionEnvironment[name];
     }
-    const requireParentPath = parentIdentifier.startsWith("file:") ? fileURLToPath(parentIdentifier) : path6.join(this.workspace, "__action_run_typescript_require__.mjs");
+    if (token && !executionEnvironment.GITHUB_TOKEN) {
+      executionEnvironment.GITHUB_TOKEN = token;
+    }
+    return executionEnvironment;
+  }
+  getGitHubToken() {
+    return this.getActionInput("github-token", { trimWhitespace: false }) ?? this.getEnvironmentValue("ACTION_RUN_TYPESCRIPT_GITHUB_TOKEN", "GITHUB_TOKEN");
+  }
+  getRunnerContext() {
+    return {
+      arch: this.getEnvironmentValue("RUNNER_ARCH") ?? exports_platform.arch,
+      debug: isDebug(),
+      name: this.getEnvironmentValue("RUNNER_NAME"),
+      os: this.getEnvironmentValue("RUNNER_OS") ?? resolveRunnerOperatingSystem(),
+      temp: this.getEnvironmentValue("RUNNER_TEMP"),
+      tool_cache: this.getEnvironmentValue("RUNNER_TOOL_CACHE")
+    };
+  }
+  parseGlobals() {
+    const rawGlobals = this.getActionInput("globals", { trimWhitespace: false }) ?? this.getEnvironmentValue("ACTION_RUN_TYPESCRIPT_GLOBALS");
+    if (rawGlobals === undefined || rawGlobals.trim() === "") {
+      return {};
+    }
+    let parsed;
     try {
-      const resolvedSpecifier = createRequire2(requireParentPath).resolve(specifier);
-      return resolvedSpecifier.startsWith("node:") ? resolvedSpecifier : pathToFileURL(resolvedSpecifier).href;
+      parsed = import_json5.default.parse(rawGlobals);
     } catch (error) {
-      throw new Error(`Cannot resolve package import ${JSON.stringify(specifier)} from ${toFileIdentifierLabel(parentIdentifier)}.`, { cause: error });
+      throw new Error('Failed to parse action input "globals".', { cause: error });
     }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new TypeError('Action input "globals" must evaluate to an object.');
+    }
+    return parsed;
   }
-  resolveLocalModulePath(specifier, parentIdentifier) {
-    const parentDirectory = parentIdentifier.startsWith("file:") ? path6.dirname(fileURLToPath(parentIdentifier)) : this.workspace;
-    const candidatePath = specifier.startsWith("file:") ? fileURLToPath(specifier) : path6.resolve(parentDirectory, specifier);
-    const explicitExtension = path6.extname(candidatePath).toLowerCase();
-    if (unsupportedJsxExtensions.has(explicitExtension)) {
-      throw createJsxUnsupportedError(candidatePath);
-    }
-    if (explicitExtension) {
-      if (isFile(candidatePath)) {
-        return path6.resolve(candidatePath);
-      }
-      if (isDirectory2(candidatePath)) {
-        return this.resolveDirectoryIndexPath(candidatePath, specifier, parentIdentifier);
-      }
-      throw new Error(`Cannot resolve local module ${JSON.stringify(specifier)} from ${toFileIdentifierLabel(parentIdentifier)}.`);
-    }
-    for (const extension of supportedLocalExtensions) {
-      const resolvedFilePath = `${candidatePath}${extension}`;
-      if (isFile(resolvedFilePath)) {
-        return path6.resolve(resolvedFilePath);
-      }
-    }
-    for (const extension of unsupportedJsxExtensions) {
-      const jsxFilePath = `${candidatePath}${extension}`;
-      if (existsSync2(jsxFilePath)) {
-        throw createJsxUnsupportedError(jsxFilePath);
-      }
-    }
-    if (isDirectory2(candidatePath)) {
-      return this.resolveDirectoryIndexPath(candidatePath, specifier, parentIdentifier);
-    }
-    throw new Error(`Cannot resolve local module ${JSON.stringify(specifier)} from ${toFileIdentifierLabel(parentIdentifier)}. Supported extensions: ${supportedLocalExtensionList}.`);
+  async run() {
+    const executionState = await this.createExecutionState();
+    const bundle = await this.createBundler().bundle(executionState.code);
+    const runner = new NodeModuleRunner({
+      bindings: executionState.bindings,
+      bundle,
+      environment: this.getExecutionEnvironment(executionState.token),
+      globals: executionState.globals,
+      workspace: this.workspace
+    });
+    await runner.run();
   }
 }
-var isInternalNodeActionEnvironment = (environment) => environment[ACTION_RUN_TYPESCRIPT_INTERNAL_MODE] === "1";
-var runInternalNodeAction = async (environment = process.env) => {
-  const code = getCode(environment);
-  const globals = parseGlobals(environment);
-  const token = getGitHubToken(environment);
-  setGitHubTokenEnvironmentValue(environment, token);
-  const bindings = await getBindings(environment, token);
-  stripRuntimeEnvironmentValues(process.env);
-  if (environment !== process.env) {
-    stripRuntimeEnvironmentValues(environment);
-  }
-  const globalValues = createGlobalValuesRecord({ ...bindings }, globals);
-  const runtime = new NodeInlineModuleRuntime(globalValues, process.cwd());
-  await runtime.evaluate(code);
-};
 
 // src/main.ts
 var actionEntryPath = import.meta.filename;
-var createActionRuntimeEnvironment = (environment) => {
-  if (environment.ACTION_RUN_TYPESCRIPT_ACTION_PATH) {
-    return environment;
-  }
-  return {
-    ...environment,
-    ACTION_RUN_TYPESCRIPT_ACTION_PATH: actionEntryPath
-  };
-};
 var isMainModule = () => {
   const entryPath = process.argv[1];
   if (!entryPath) {
@@ -24768,11 +24751,7 @@ var isMainModule = () => {
   return path7.resolve(entryPath) === actionEntryPath;
 };
 var runAction = async (environment = process.env) => {
-  if (isInternalNodeActionEnvironment(environment)) {
-    await runInternalNodeAction(environment);
-    return;
-  }
-  const runtime = new ActionRuntime(createActionRuntimeEnvironment(environment));
+  const runtime = new ActionRuntime(environment);
   await runtime.run();
 };
 var main_default = runAction;

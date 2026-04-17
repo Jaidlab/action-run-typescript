@@ -3,15 +3,63 @@ import path from 'node:path'
 import {fileURLToPath, pathToFileURL} from 'node:url'
 import vm from 'node:vm'
 
-import {createExecutionContext} from '../context/createExecutionContext.ts'
-
 export interface VmModuleRuntimeOptions {
   readonly code: string
   readonly globalValues: Record<string, unknown>
   readonly identifier: string
 }
 
+type GlobalRecord = Record<PropertyKey, unknown>
 type ModuleInstance = vm.SourceTextModule | vm.SyntheticModule
+
+const defineGlobalValue = (target: object, name: PropertyKey, value: unknown) => {
+  Reflect.defineProperty(target, name, {
+    configurable: true,
+    enumerable: true,
+    value,
+    writable: true,
+  })
+}
+const createExecutionContext = (globalValues: Record<string, unknown>) => {
+  const sandbox = Object.create(null) as GlobalRecord
+  for (const key of Reflect.ownKeys(globalThis)) {
+    if (key === 'crypto' || key === 'global' || key === 'globalThis' || key === 'self') {
+      continue
+    }
+    const descriptor = Reflect.getOwnPropertyDescriptor(globalThis, key)
+    if (descriptor) {
+      Reflect.defineProperty(sandbox, key, descriptor)
+    }
+  }
+  for (const [name, value] of Object.entries(globalValues)) {
+    defineGlobalValue(sandbox, name, value)
+  }
+  Reflect.defineProperty(sandbox, 'global', {
+    configurable: true,
+    enumerable: false,
+    value: sandbox,
+    writable: true,
+  })
+  Reflect.defineProperty(sandbox, 'globalThis', {
+    configurable: true,
+    enumerable: false,
+    value: sandbox,
+    writable: true,
+  })
+  Reflect.defineProperty(sandbox, 'self', {
+    configurable: true,
+    enumerable: false,
+    value: sandbox,
+    writable: true,
+  })
+  Reflect.defineProperty(sandbox, 'crypto', {
+    configurable: true,
+    enumerable: false,
+    value: globalThis.crypto,
+    writable: true,
+  })
+  return vm.createContext(sandbox)
+}
 
 export class VmModuleRuntime {
   readonly code: string

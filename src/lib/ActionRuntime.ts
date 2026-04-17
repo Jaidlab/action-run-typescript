@@ -34,10 +34,6 @@ export interface ActionRuntimeEnvironment extends Record<string, string | undefi
   readonly RUNNER_TOOL_CACHE?: string
 }
 
-export interface ActionRuntimeOptions {
-  readonly vmRunnerPath: string
-}
-
 type MutableActionRuntimeEnvironment = Record<string, string | undefined>
 
 type ActionExecutionState = {
@@ -95,13 +91,13 @@ const toJobContext = (githubJobId: string | undefined, workflowJob?: WorkflowJob
 export class ActionRuntime {
   readonly environment: ActionRuntimeEnvironment
 
-  readonly options: ActionRuntimeOptions
+  readonly vmRunnerPath: string
 
   readonly workspace: string
 
-  constructor(environment: ActionRuntimeEnvironment, options: ActionRuntimeOptions) {
+  constructor(environment: ActionRuntimeEnvironment, vmRunnerPath: string) {
     this.environment = environment
-    this.options = options
+    this.vmRunnerPath = vmRunnerPath
     this.workspace = toForwardSlashPath(path.resolve(environment.GITHUB_WORKSPACE || process.cwd()))
   }
 
@@ -212,7 +208,7 @@ export class ActionRuntime {
       bundle,
       environment: this.getExecutionEnvironment(executionState.token),
       globals: executionState.globals,
-      vmRunnerPath: this.options.vmRunnerPath,
+      vmRunnerPath: this.vmRunnerPath,
       workspace: this.workspace,
     })
     await runner.run()

@@ -1,11 +1,16 @@
 import type {ActionRuntimeBindings} from '../ActionRuntimeBindings.ts'
-import type {VmRunnerPayload} from './VmRunnerPayload.ts'
 
 import {spawn} from 'node:child_process'
 import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
+
+export interface VmRunnerPayload {
+  readonly bindings: ActionRuntimeBindings
+  readonly globals: Record<string, unknown>
+  readonly identifier: string
+}
 
 export interface NodeModuleRunnerOptions {
   readonly bindings: ActionRuntimeBindings
@@ -36,7 +41,7 @@ export class NodeModuleRunner {
     this.options = options
   }
 
-  getPayload(): VmRunnerPayload {
+  createPayload(): VmRunnerPayload {
     return {
       bindings: this.options.bindings,
       globals: this.options.globals,
@@ -54,7 +59,7 @@ export class NodeModuleRunner {
     const bundleFile = path.join(temporaryFolder, 'bundle.mjs')
     const payloadFile = path.join(temporaryFolder, 'payload.json')
     writeFileSync(bundleFile, this.options.bundle, 'utf8')
-    writeFileSync(payloadFile, JSON.stringify(this.getPayload()), 'utf8')
+    writeFileSync(payloadFile, JSON.stringify(this.createPayload()), 'utf8')
     try {
       const child = spawn(process.execPath, [
         '--disable-warning=ExperimentalWarning',

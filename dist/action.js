@@ -23854,7 +23854,6 @@ var context2 = new Context;
 var import_json5 = __toESM(require_lib2(), 1);
 
 // src/lib/environment.ts
-var actionInputNames = ["code", "github-token", "globals"];
 var unresolvedExpressionPattern = /^\s*\$\{\{[\s\S]*\}\}\s*$/;
 var deprecatedContextEnvironmentNames = [
   "ACTION_RUN_TYPESCRIPT_GITHUB_CONTEXT",
@@ -23875,6 +23874,12 @@ var legacyActionRuntimeInputEnvironmentNames = [
   "ACTION_RUN_TYPESCRIPT_GITHUB_TOKEN",
   "ACTION_RUN_TYPESCRIPT_GLOBALS"
 ];
+var actionInputEnvironmentNames = ["INPUT_CODE", "INPUT_GITHUB-TOKEN", "INPUT_GLOBALS"];
+var scrubbedEnvironmentNames = [
+  ...deprecatedContextEnvironmentNames,
+  ...legacyActionRuntimeInputEnvironmentNames,
+  ...actionInputEnvironmentNames
+];
 var normalizeEnvironmentValue = (value) => {
   if (value === undefined || value === "") {
     return;
@@ -23892,13 +23897,6 @@ var getEnvironmentValue = (environment, ...names) => {
     }
   }
 };
-var toInputEnvironmentName = (name) => `INPUT_${name.replaceAll(" ", "_").toUpperCase()}`;
-var actionInputEnvironmentNames = actionInputNames.map(toInputEnvironmentName);
-var scrubbedEnvironmentNames = [
-  ...deprecatedContextEnvironmentNames,
-  ...legacyActionRuntimeInputEnvironmentNames,
-  ...actionInputEnvironmentNames
-];
 
 // src/lib/github/getCurrentWorkflowJob.ts
 var listWorkflowJobs = async ({ fetch: fetchImplementation = fetch, github, token }) => {
@@ -24113,7 +24111,7 @@ class NodeModuleRunner {
   constructor(options) {
     this.options = options;
   }
-  getPayload() {
+  createPayload() {
     return {
       bindings: this.options.bindings,
       globals: this.options.globals,
@@ -24129,7 +24127,7 @@ class NodeModuleRunner {
     const bundleFile = path4.join(temporaryFolder, "bundle.mjs");
     const payloadFile = path4.join(temporaryFolder, "payload.json");
     writeFileSync(bundleFile, this.options.bundle, "utf8");
-    writeFileSync(payloadFile, JSON.stringify(this.getPayload()), "utf8");
+    writeFileSync(payloadFile, JSON.stringify(this.createPayload()), "utf8");
     try {
       const child2 = spawn2(process.execPath, [
         "--disable-warning=ExperimentalWarning",
@@ -24384,11 +24382,11 @@ var toJobContext = (githubJobId, workflowJob) => {
 
 class ActionRuntime {
   environment;
-  options;
+  vmRunnerPath;
   workspace;
-  constructor(environment, options) {
+  constructor(environment, vmRunnerPath) {
     this.environment = environment;
-    this.options = options;
+    this.vmRunnerPath = vmRunnerPath;
     this.workspace = toForwardSlashPath(path6.resolve(environment.GITHUB_WORKSPACE || process.cwd()));
   }
   createBundler() {
@@ -24488,7 +24486,7 @@ class ActionRuntime {
       bundle,
       environment: this.getExecutionEnvironment(executionState.token),
       globals: executionState.globals,
-      vmRunnerPath: this.options.vmRunnerPath,
+      vmRunnerPath: this.vmRunnerPath,
       workspace: this.workspace
     });
     await runner.run();
@@ -24497,9 +24495,7 @@ class ActionRuntime {
 
 // src/main.ts
 var actionEntryPath = import.meta.filename;
-var createActionRuntimeOptions = () => ({
-  vmRunnerPath: fileURLToPath(new URL(`./vm-runner${path7.extname(import.meta.filename)}`, import.meta.url))
-});
+var vmRunnerPath = fileURLToPath(new URL(`./vm-runner${path7.extname(import.meta.filename)}`, import.meta.url));
 var isMainModule = () => {
   const entryPath = process.argv[1];
   if (!entryPath) {
@@ -24508,7 +24504,7 @@ var isMainModule = () => {
   return path7.resolve(entryPath) === actionEntryPath;
 };
 var runAction = async (environment = process.env) => {
-  const runtime = new ActionRuntime(environment, createActionRuntimeOptions());
+  const runtime = new ActionRuntime(environment, vmRunnerPath);
   await runtime.run();
 };
 var main_default = runAction;

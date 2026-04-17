@@ -27,6 +27,38 @@ const makeEnvironment = (overrides: ActionRuntimeEnvironment = {}): ActionRuntim
   ...(process.env as ActionRuntimeEnvironment),
   ...overrides,
 })
+const normalizeLineEndings = (value: string) => value.replaceAll('\r\n', '\n')
+const parseWorkflowCommandFile = (content: string) => {
+  const entries: Record<string, string> = {}
+  const lines = normalizeLineEndings(content).split('\n')
+  let index = 0
+  while (index < lines.length) {
+    const line = lines[index]
+    if (!line) {
+      index++
+      continue
+    }
+    const heredocMatch = /^(?<name>[^<]+)<<(?<delimiter>.+)$/.exec(line)
+    if (heredocMatch?.groups) {
+      const {delimiter, name} = heredocMatch.groups
+      const chunks: Array<string> = []
+      index++
+      while (index < lines.length && lines[index] !== delimiter) {
+        chunks.push(lines[index])
+        index++
+      }
+      assert.notEqual(index, lines.length, `Missing workflow command delimiter ${delimiter}.`)
+      entries[name] = chunks.join('\n')
+      index++
+      continue
+    }
+    const equalsIndex = line.indexOf('=')
+    assert.notEqual(equalsIndex, -1, `Invalid workflow command line: ${line}`)
+    entries[line.slice(0, equalsIndex)] = line.slice(equalsIndex + 1)
+    index++
+  }
+  return entries
+}
 const writeFakeReactJsxRuntime = async (workspace: string) => {
   const reactFolder = path.join(workspace, 'node_modules', 'react')
   await mkdir(reactFolder, {recursive: true})
@@ -138,7 +170,7 @@ await writeFile('tsx.json', JSON.stringify({
       })
     }
   })
-  void it('should expose GitHub Actions file helpers through core', async () => {
+  void it('should expose the real @actions/core module through core', async () => {
     const workspace = await createWorkspace()
     try {
       const outputFile = path.join(workspace, 'github-output.txt')
@@ -146,12 +178,13 @@ await writeFile('tsx.json', JSON.stringify({
       const pathFile = path.join(workspace, 'github-path.txt')
       const stateFile = path.join(workspace, 'github-state.txt')
       const summaryFile = path.join(workspace, 'github-step-summary.md')
+      await Promise.all([outputFile, environmentFile, pathFile, stateFile, summaryFile].map(file => writeFile(file, '')))
       await runAction(makeEnvironment({
         INPUT_CODE: `core.setOutput('answer', 42)
 core.exportVariable('COLOR', 'blue')
 core.addPath('./bin')
 core.saveState('stateful', {enabled: true})
-core.summary.write('# summary')
+await core.summary.addRaw('# summary').write()
 `,
         GITHUB_ENV: environmentFile,
         GITHUB_OUTPUT: outputFile,
@@ -162,10 +195,10 @@ core.summary.write('# summary')
         GITHUB_STEP_SUMMARY: summaryFile,
         GITHUB_WORKSPACE: workspace,
       }))
-      assert.equal(await readFile(outputFile, 'utf8'), 'answer=42\n')
-      assert.equal(await readFile(environmentFile, 'utf8'), 'COLOR=blue\n')
-      assert.equal(await readFile(pathFile, 'utf8'), './bin\n')
-      assert.equal(await readFile(stateFile, 'utf8'), 'stateful={"enabled":true}\n')
+      assert.deepEqual(parseWorkflowCommandFile(await readFile(outputFile, 'utf8')), {answer: '42'})
+      assert.deepEqual(parseWorkflowCommandFile(await readFile(environmentFile, 'utf8')), {COLOR: 'blue'})
+      assert.equal(normalizeLineEndings(await readFile(pathFile, 'utf8')), './bin\n')
+      assert.deepEqual(parseWorkflowCommandFile(await readFile(stateFile, 'utf8')), {stateful: '{"enabled":true}'})
       assert.equal(await readFile(summaryFile, 'utf8'), '# summary')
     } finally {
       await rm(workspace, {

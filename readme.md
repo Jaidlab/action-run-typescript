@@ -34,7 +34,7 @@ jobs:
 
 Your inline code runs in a dedicated Node.js 24 child process from the workflow workspace root. These bindings are available without importing anything:
 
-- `core` – a lightweight helper inspired by `@actions/core`
+- `core` – the real `@actions/core` module
 - `github` – a best-effort GitHub context built from `@actions/github.context`, plus compatibility aliases like `github.repository`, `github.run_id`, `github.event` and `github.repo`
 - `job` – a best-effort job context. It always includes `job.id` from `GITHUB_JOB` and may also include `name`, `status`, `conclusion`, `workflow_job_id`, `workflowJobId` and `url`
 - `runner` – a best-effort runner context built from runner environment variables and `@actions/core.platform`
@@ -106,28 +106,15 @@ Example:
 
 JSX and TSX use Rspack’s SWC-based React automatic runtime. If your code uses JSX, the corresponding runtime helpers, such as `react/jsx-runtime`, must be resolvable from the workspace.
 
-## `core` helper
+## `core`
 
-The injected `core` object supports a practical subset of `@actions/core`:
+The injected `core` global is the actual `@actions/core` module, not a local shim. That means its API and behavior match upstream, including helpers like `setOutput`, `exportVariable`, `saveState`, `group`, `summary`, `platform` and the rest of the package.
 
-- `core.setOutput(name, value)`
-- `core.exportVariable(name, value)`
-- `core.saveState(name, value)`
-- `core.getState(name)`
-- `core.addPath(path)`
-- `core.setSecret(secret)`
-- `core.debug(message)`
-- `core.info(message)`
-- `core.notice(message, properties?)`
-- `core.warning(message, properties?)`
-- `core.error(message, properties?)`
-- `core.setFailed(message)`
-- `core.startGroup(name)`
-- `core.endGroup()`
-- `core.group(name, callback)`
-- `core.summary.append(value)`
-- `core.summary.write(value)`
-- `core.summary.clear()`
+For example, the summary API behaves exactly like `@actions/core`, so writing a summary looks like this:
+
+```ts
+await core.summary.addRaw('# summary').write()
+```
 
 ## Notes
 

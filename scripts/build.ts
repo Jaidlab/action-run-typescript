@@ -3,11 +3,14 @@ import os from 'node:os'
 import path from 'node:path'
 
 const rspackRuntimePackageNames = [
-  '@rspack/core',
-  '@rspack/binding',
   '@rspack/binding-linux-x64-gnu',
   '@rspack/binding-win32-x64-msvc',
 ] as const
+const runtimePackageTreeRoots = [
+  '@actions/core',
+  '@rspack/core',
+] as const
+const normalizePackageVersion = (value: string) => value.replace(/^[\^~]/, '')
 const buildActionEntry = async ({entryFile, external = [], outputFile}: {entryFile: string
   external?: Array<string>
   outputFile: string}) => {
@@ -88,24 +91,62 @@ const downloadPackageFolder = async (packageName: string, version: string, outpu
     })
   }
 }
-const ensureRuntimePackageFolder = async (packageName: string, outputFolder: string, packageJsonFile: string, rootFolder: string) => {
+const ensureRuntimePackageFolder = async ({outputFolder,
+  packageName,
+  rootFolder,
+  version}: {outputFolder: string
+  packageName: string
+  rootFolder: string
+  version?: string}) => {
   if (copyPackageFolder(packageName, outputFolder, rootFolder)) {
+    return path.join(outputFolder, 'node_modules', ...packageName.split('/'))
+  }
+  if (!version) {
+    throw new Error(`Package ${packageName} is not available locally and no version was provided.`)
+  }
+  await downloadPackageFolder(packageName, normalizePackageVersion(version), outputFolder)
+  return path.join(outputFolder, 'node_modules', ...packageName.split('/'))
+}
+const ensureRuntimePackageTree = async ({outputFolder,
+  packageName,
+  rootFolder,
+  seen,
+  version}: {outputFolder: string
+  packageName: string
+  rootFolder: string
+  seen: Set<string>
+  version?: string}) => {
+  if (seen.has(packageName)) {
     return
   }
-  const packageJson = await Bun.file(packageJsonFile).json() as {
+  seen.add(packageName)
+  const packageFolder = await ensureRuntimePackageFolder({
+    outputFolder,
+    packageName,
+    rootFolder,
+    version,
+  })
+  const packageJson = await Bun.file(path.join(packageFolder, 'package.json')).json() as {
     readonly dependencies?: Record<string, string>
-    readonly devDependencies?: Record<string, string>
   }
-  const rawVersion = packageJson.dependencies?.[packageName] || packageJson.devDependencies?.[packageName]
-  if (!rawVersion) {
-    throw new Error(`Package ${packageName} is not declared in package.json.`)
+  for (const [dependencyName, dependencyVersion] of Object.entries(packageJson.dependencies || {})) {
+    await ensureRuntimePackageTree({
+      outputFolder,
+      packageName: dependencyName,
+      rootFolder,
+      seen,
+      version: dependencyVersion,
+    })
   }
-  await downloadPackageFolder(packageName, rawVersion.replace(/^[\^~]/, ''), outputFolder)
 }
 const isProduction = process.env.NODE_ENV === 'production'
 const rootFolder = path.resolve(process.cwd())
 const outputFolder = path.join(rootFolder, 'dist')
-const packageJsonFile = path.join(rootFolder, 'package.json')
+const rootPackageJson = await Bun.file(path.join(rootFolder, 'package.json')).json() as {
+  readonly dependencies?: Record<string, string>
+  readonly devDependencies?: Record<string, string>
+}
+const getRootPackageVersion = (packageName: string) => rootPackageJson.dependencies?.[packageName] || rootPackageJson.devDependencies?.[packageName]
 rmSync(outputFolder, {
   force: true,
   recursive: true,
@@ -116,11 +157,22 @@ await buildActionEntry({
   external: ['@rspack/core'],
   outputFile: path.join(outputFolder, 'action.js'),
 })
-await buildActionEntry({
-  entryFile: path.join(rootFolder, 'src', 'vm-runner.ts'),
-  outputFile: path.join(outputFolder, 'vm-runner.js'),
-})
+const seenRuntimePackages = new Set<string>
+for (const packageName of runtimePackageTreeRoots) {
+  await ensureRuntimePackageTree({
+    outputFolder,
+    packageName,
+    rootFolder,
+    seen: seenRuntimePackages,
+    version: getRootPackageVersion(packageName),
+  })
+}
 for (const packageName of rspackRuntimePackageNames) {
-  await ensureRuntimePackageFolder(packageName, outputFolder, packageJsonFile, rootFolder)
+  await ensureRuntimePackageFolder({
+    outputFolder,
+    packageName,
+    rootFolder,
+    version: getRootPackageVersion(packageName),
+  })
 }
 console.log(`Built action bundle: ${path.join(outputFolder, 'action.js')}`)

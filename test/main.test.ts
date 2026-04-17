@@ -12,9 +12,11 @@ import {toForwardSlashPath} from '../src/lib/toForwardSlashPath.ts'
 import runAction from '../src/main.ts'
 
 interface ScriptResult {
+  readonly currentWorkingDirectory: string
   readonly customValue: string
   readonly githubAction: string
   readonly githubRepository: string
+  readonly globalCustomValue: string
   readonly imported: number
   readonly jobId: string
   readonly matrixNode: string
@@ -86,9 +88,11 @@ void describe('action-run-typescript', () => {
 import packageJson from './package.json'
 import value from './value.ts'
 await writeFile('result.json', JSON.stringify({
+  currentWorkingDirectory: process.cwd(),
   customValue,
   githubAction: github.action,
   githubRepository: github.repository,
+  globalCustomValue: globalThis.customValue,
   imported: value,
   jobId: job.id,
   matrixNode: matrix.node,
@@ -112,9 +116,11 @@ await writeFile('result.json', JSON.stringify({
       }))
       const result = JSON.parse(await readFile(outputFile, 'utf8')) as ScriptResult
       assert.deepEqual(result, {
+        currentWorkingDirectory: path.normalize(workspace),
         customValue: 'hello',
         githubAction: 'test-action',
         githubRepository: 'Jaidlab/action-run-typescript',
+        globalCustomValue: 'hello',
         imported: 41,
         jobId: 'test-job',
         matrixNode: '22',

@@ -91,19 +91,15 @@ const toJobContext = (githubJobId: string | undefined, workflowJob?: WorkflowJob
 export class ActionRuntime {
   readonly environment: ActionRuntimeEnvironment
 
-  readonly vmRunnerPath: string
-
   readonly workspace: string
 
-  constructor(environment: ActionRuntimeEnvironment, vmRunnerPath: string) {
+  constructor(environment: ActionRuntimeEnvironment) {
     this.environment = environment
-    this.vmRunnerPath = vmRunnerPath
     this.workspace = toForwardSlashPath(path.resolve(environment.GITHUB_WORKSPACE || process.cwd()))
   }
 
   createBundler() {
     return new RspackInlineScriptBundler({
-      tempFolder: this.getEnvironmentValue('RUNNER_TEMP'),
       workspace: this.workspace,
     })
   }
@@ -202,15 +198,20 @@ export class ActionRuntime {
 
   async run() {
     const executionState = await this.createExecutionState()
-    const bundle = await this.createBundler().bundle(executionState.code)
-    const runner = new NodeModuleRunner({
+    const bundle = await this.createBundler().bundle({
       bindings: executionState.bindings,
-      bundle,
-      environment: this.getExecutionEnvironment(executionState.token),
+      code: executionState.code,
       globals: executionState.globals,
-      vmRunnerPath: this.vmRunnerPath,
-      workspace: this.workspace,
     })
-    await runner.run()
+    try {
+      const runner = new NodeModuleRunner({
+        bundleFile: bundle.file,
+        environment: this.getExecutionEnvironment(executionState.token),
+        workspace: this.workspace,
+      })
+      await runner.run()
+    } finally {
+      bundle.cleanup()
+    }
   }
 }

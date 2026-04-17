@@ -19136,11 +19136,10 @@ var require_lib2 = __commonJS((exports, module) => {
 });
 
 // src/main.ts
-import path7 from "node:path";
-import { fileURLToPath } from "node:url";
+import path6 from "node:path";
 
 // src/lib/ActionRuntime.ts
-import path6 from "node:path";
+import path5 from "node:path";
 
 // node_modules/@actions/http-client/lib/index.js
 var tunnel = __toESM(require_tunnel(), 1);
@@ -24091,10 +24090,6 @@ var toWorkflowStepsFallback = (workflowJob) => {
 
 // src/lib/node/NodeModuleRunner.ts
 import { spawn as spawn2 } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import os3 from "node:os";
-import path4 from "node:path";
-import { pathToFileURL } from "node:url";
 var createSpawnEnvironment = (environment) => Object.fromEntries(Object.entries(environment).filter(([, value]) => value !== undefined));
 var waitForChildProcess = (child2) => new Promise((resolve2, reject) => {
   child2.once("error", reject);
@@ -24111,147 +24106,107 @@ class NodeModuleRunner {
   constructor(options) {
     this.options = options;
   }
-  createPayload() {
-    return {
-      bindings: this.options.bindings,
-      globals: this.options.globals,
-      identifier: pathToFileURL(path4.join(this.options.workspace, "__action_run_typescript_bundle__.mjs")).href
-    };
-  }
-  getTempRoot() {
-    return this.options.environment.RUNNER_TEMP || os3.tmpdir();
-  }
   async run() {
-    mkdirSync(this.getTempRoot(), { recursive: true });
-    const temporaryFolder = mkdtempSync(path4.join(this.getTempRoot(), "action-run-typescript-"));
-    const bundleFile = path4.join(temporaryFolder, "bundle.mjs");
-    const payloadFile = path4.join(temporaryFolder, "payload.json");
-    writeFileSync(bundleFile, this.options.bundle, "utf8");
-    writeFileSync(payloadFile, JSON.stringify(this.createPayload()), "utf8");
-    try {
-      const child2 = spawn2(process.execPath, [
-        "--disable-warning=ExperimentalWarning",
-        "--experimental-vm-modules",
-        path4.resolve(this.options.vmRunnerPath),
-        path4.resolve(payloadFile),
-        path4.resolve(bundleFile)
-      ], {
-        cwd: this.options.workspace,
-        env: createSpawnEnvironment(this.options.environment),
-        stdio: "inherit"
-      });
-      const { exitCode, signal } = await waitForChildProcess(child2);
-      if (signal) {
-        throw new Error(`Inline TypeScript exited due to signal ${signal}.`);
-      }
-      const normalizedExitCode = exitCode ?? 0;
-      if (normalizedExitCode !== 0) {
-        throw new Error(`Inline TypeScript exited with code ${normalizedExitCode}.`);
-      }
-    } finally {
-      rmSync(temporaryFolder, {
-        force: true,
-        recursive: true
-      });
+    const child2 = spawn2(process.execPath, [this.options.bundleFile], {
+      cwd: this.options.workspace,
+      env: createSpawnEnvironment(this.options.environment),
+      stdio: "inherit"
+    });
+    const { exitCode, signal } = await waitForChildProcess(child2);
+    if (signal) {
+      throw new Error(`Inline TypeScript exited due to signal ${signal}.`);
+    }
+    const normalizedExitCode = exitCode ?? 0;
+    if (normalizedExitCode !== 0) {
+      throw new Error(`Inline TypeScript exited with code ${normalizedExitCode}.`);
     }
   }
 }
 
 // src/lib/rspack/RspackInlineScriptBundler.ts
 import { randomUUID } from "node:crypto";
-import { mkdirSync as mkdirSync2, readFileSync as readFileSync2, rmSync as rmSync2, writeFileSync as writeFileSync2 } from "node:fs";
-import os4 from "node:os";
-import path5 from "node:path";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import path4 from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import rspack from "@rspack/core";
+var actionCoreAlias = "__action_run_typescript_action_core__";
+var globalsAlias = "__action_run_typescript_globals__";
+var injectedIdentifierPattern = /^[\p{ID_Start}$_][\p{ID_Continue}$\u200C\u200D]*$/u;
+var closeCompiler = (compiler) => promisify(compiler.close.bind(compiler))();
+var createBootstrapEntrySource = (userEntrySpecifier) => `export {}
+
+await import(${JSON.stringify(userEntrySpecifier)})
+`;
+var createUserEntrySource = (code) => `export {}
+
+${code}
+`;
+var getRspackOutput = async (compiler) => {
+  try {
+    const stats = await promisify(compiler.run.bind(compiler))();
+    if (stats.hasErrors()) {
+      throw new Error(stats.toString());
+    }
+  } finally {
+    await closeCompiler(compiler);
+  }
+};
 var isBundledRequest = (request2) => {
   if (!request2) {
     return true;
   }
-  return request2.startsWith(".") || request2.startsWith("/") || request2.startsWith("file:") || request2.startsWith("#") || path5.isAbsolute(request2);
+  return request2.startsWith(".") || request2.startsWith("/") || request2.startsWith("file:") || request2.startsWith("#") || request2.startsWith("__action_run_typescript_") || path4.isAbsolute(request2);
+};
+var isPathInside = (parentFolder, childPath) => {
+  const normalizedParentFolder = path4.resolve(parentFolder);
+  const normalizedChildPath = path4.resolve(childPath);
+  return normalizedChildPath === normalizedParentFolder || normalizedChildPath.startsWith(`${normalizedParentFolder}${path4.sep}`);
 };
 var isProbablyJsxParseFailure = (error) => {
   const message = error instanceof Error ? error.message : String(error);
   return message.includes("JSX") || message.includes("Unexpected token") && message.includes("<") || message.includes("files with the .mts or .cts extension");
 };
-var closeCompiler = (compiler) => promisify(compiler.close.bind(compiler))();
-var runCompiler = (compiler) => promisify(compiler.run.bind(compiler))();
-var createCompiler = ({ entryFile, outputFolder, workspace }) => rspack({
-  context: workspace,
-  mode: "none",
-  target: "node",
-  devtool: false,
-  entry: entryFile,
-  experiments: {
-    outputModule: true,
-    topLevelAwait: true
-  },
-  externalsPresets: {
-    node: true
-  },
-  externalsType: "module",
-  externals: [
-    ({ request: request2 }) => {
-      if (isBundledRequest(request2)) {
-        return;
-      }
-      return request2;
-    }
-  ],
-  module: {
-    rules: [
-      {
-        test: /\.[cm]?[jt]sx?$/,
-        type: "javascript/auto",
-        loader: "builtin:swc-loader",
-        options: {
-          detectSyntax: "auto",
-          jsc: {
-            target: "es2023",
-            transform: {
-              react: {
-                development: false,
-                runtime: "automatic"
-              }
-            }
-          }
-        }
-      }
-    ]
-  },
-  optimization: {
-    minimize: false,
-    runtimeChunk: false,
-    splitChunks: false
-  },
-  output: {
-    chunkFormat: "module",
-    chunkLoading: false,
-    filename: "bundle.mjs",
-    library: {
-      type: "module"
-    },
-    module: true,
-    path: outputFolder
-  },
-  resolve: {
-    extensions: [".tsx", ".ts", ".jsx", ".js", ".mts", ".cts", ".mjs", ".cjs", ".json"]
+var isValidInjectedIdentifier = (name) => injectedIdentifierPattern.test(name);
+var serializeJavaScriptValue = (value) => JSON.stringify(value, null, 2) ?? "undefined";
+var toForwardSlashRelativePath = (from, to) => path4.relative(from, to).replaceAll("\\", "/");
+var createGlobalsModuleSource = ({
+  bindings,
+  coreImportSpecifier,
+  globals,
+  exportNamedValues
+}) => {
+  const lines = [`import * as actionCore from ${JSON.stringify(coreImportSpecifier)}`];
+  const mergedExpressions = new Map;
+  for (const [name, value] of Object.entries(bindings)) {
+    mergedExpressions.set(name, serializeJavaScriptValue(value));
   }
-});
-var createEntrySource = (code) => `export {}
-
-${code}
+  mergedExpressions.set("core", "actionCore");
+  for (const [name, value] of Object.entries(globals)) {
+    mergedExpressions.set(name, serializeJavaScriptValue(value));
+  }
+  const locals = [];
+  let index = 0;
+  for (const [name, expression] of mergedExpressions) {
+    const localName = `value${index++}`;
+    lines.push(`const ${localName} = ${expression}`);
+    if (exportNamedValues && isValidInjectedIdentifier(name)) {
+      lines.push(`export {${localName} as ${name}}`);
+    }
+    locals.push({
+      localName,
+      name
+    });
+  }
+  lines.push("const globals = {");
+  for (const { localName, name } of locals) {
+    lines.push(`  ${JSON.stringify(name)}: ${localName},`);
+  }
+  lines.push("}");
+  lines.push("export default globals");
+  return `${lines.join(`
+`)}
 `;
-var getRspackOutput = async (compiler, outputFile) => {
-  try {
-    const stats = await runCompiler(compiler);
-    if (stats.hasErrors()) {
-      throw new Error(stats.toString());
-    }
-    return readFileSync2(outputFile, "utf8");
-  } finally {
-    await closeCompiler(compiler);
-  }
 };
 
 class RspackInlineScriptBundler {
@@ -24259,15 +24214,15 @@ class RspackInlineScriptBundler {
   constructor(options) {
     this.options = options;
   }
-  async bundle(code) {
+  async bundle(options) {
     let tsError;
     try {
-      return await this.bundleWithExtension(code, ".ts");
+      return await this.bundleWithExtension(options, ".ts");
     } catch (error) {
       tsError = error;
     }
     try {
-      return await this.bundleWithExtension(code, ".tsx");
+      return await this.bundleWithExtension(options, ".tsx");
     } catch (tsxError) {
       if (isProbablyJsxParseFailure(tsError)) {
         throw tsxError;
@@ -24275,28 +24230,134 @@ class RspackInlineScriptBundler {
       throw tsError;
     }
   }
-  async bundleWithExtension(code, extension) {
-    const temporaryRoot = this.options.tempFolder || os4.tmpdir();
-    mkdirSync2(temporaryRoot, { recursive: true });
+  async bundleWithExtension({
+    bindings,
+    code,
+    globals
+  }, extension) {
     const nonce = randomUUID();
-    const entryFile = path5.join(this.options.workspace, `__action_run_typescript_inline__.${nonce}${extension}`);
-    const outputFolder = path5.join(temporaryRoot, `action-run-typescript-rspack-${nonce}`);
-    const outputFile = path5.join(outputFolder, "bundle.mjs");
-    writeFileSync2(entryFile, createEntrySource(code), "utf8");
-    mkdirSync2(outputFolder, { recursive: true });
-    const compiler = createCompiler({
-      entryFile,
-      outputFolder,
-      workspace: this.options.workspace
-    });
-    try {
-      return await getRspackOutput(compiler, outputFile);
-    } finally {
-      rmSync2(outputFolder, {
+    const outputFolder = mkdtempSync(path4.join(this.options.workspace, ".action-run-typescript-"));
+    const bundleFile = path4.join(outputFolder, "bundle.mjs");
+    const globalsProvidedFile = path4.join(outputFolder, "globals.provided.mjs");
+    const globalsRuntimeFile = path4.join(outputFolder, "globals.mjs");
+    const bootstrapEntryFile = path4.join(outputFolder, "entry.ts");
+    const userEntryFile = path4.join(this.options.workspace, `__action_run_typescript_inline__.${nonce}${extension}`);
+    const actionCoreFile = fileURLToPath(import.meta.resolve("@actions/core"));
+    const injectedGlobalNames = new Set([...Object.keys(bindings), "core", ...Object.keys(globals)]);
+    const cleanup = () => {
+      rmSync(outputFolder, {
         force: true,
         recursive: true
       });
-      rmSync2(entryFile, { force: true });
+      rmSync(userEntryFile, { force: true });
+    };
+    writeFileSync(userEntryFile, createUserEntrySource(code), "utf8");
+    writeFileSync(globalsProvidedFile, createGlobalsModuleSource({
+      bindings,
+      coreImportSpecifier: actionCoreAlias,
+      exportNamedValues: true,
+      globals
+    }), "utf8");
+    writeFileSync(globalsRuntimeFile, createGlobalsModuleSource({
+      bindings,
+      coreImportSpecifier: pathToFileURL(actionCoreFile).href,
+      exportNamedValues: false,
+      globals
+    }), "utf8");
+    writeFileSync(bootstrapEntryFile, createBootstrapEntrySource(toForwardSlashRelativePath(outputFolder, userEntryFile)), "utf8");
+    const compiler = rspack({
+      context: this.options.workspace,
+      mode: "none",
+      target: "node",
+      devtool: false,
+      entry: bootstrapEntryFile,
+      experiments: {
+        outputModule: true,
+        topLevelAwait: true
+      },
+      externalsPresets: {
+        node: true
+      },
+      externalsType: "module",
+      externals: [
+        ({ context: context3 = "", request: request2 }) => {
+          if (isBundledRequest(request2) || !isPathInside(this.options.workspace, context3)) {
+            return;
+          }
+          return request2;
+        }
+      ],
+      module: {
+        rules: [
+          {
+            test: /\.[cm]?[jt]sx?$/,
+            type: "javascript/auto",
+            loader: "builtin:swc-loader",
+            options: {
+              detectSyntax: "auto",
+              jsc: {
+                target: "es2023",
+                transform: {
+                  react: {
+                    development: false,
+                    runtime: "automatic"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      optimization: {
+        minimize: false,
+        runtimeChunk: false,
+        splitChunks: false
+      },
+      output: {
+        chunkFormat: "module",
+        chunkLoading: false,
+        filename: path4.basename(bundleFile),
+        library: {
+          type: "module"
+        },
+        module: true,
+        path: outputFolder
+      },
+      plugins: [
+        new rspack.ProvidePlugin(Object.fromEntries([...injectedGlobalNames].filter(isValidInjectedIdentifier).map((name) => [name, [globalsAlias, name]]))),
+        new rspack.BannerPlugin({
+          raw: true,
+          banner: [
+            `import __action_run_typescript_globals__ from ${JSON.stringify(`./${path4.basename(globalsRuntimeFile)}`)};`,
+            "for (const [name, value] of Object.entries(__action_run_typescript_globals__)) {",
+            "  Reflect.defineProperty(globalThis, name, {",
+            "    configurable: true,",
+            "    enumerable: true,",
+            "    value,",
+            "    writable: true,",
+            "  });",
+            "}"
+          ].join(`
+`)
+        })
+      ],
+      resolve: {
+        alias: {
+          [actionCoreAlias]: actionCoreFile,
+          [globalsAlias]: globalsProvidedFile
+        },
+        extensions: [".tsx", ".ts", ".jsx", ".js", ".mts", ".cts", ".mjs", ".cjs", ".json"]
+      }
+    });
+    try {
+      await getRspackOutput(compiler);
+      return {
+        cleanup,
+        file: bundleFile
+      };
+    } catch (error) {
+      cleanup();
+      throw error;
     }
   }
 }
@@ -24382,16 +24443,13 @@ var toJobContext = (githubJobId, workflowJob) => {
 
 class ActionRuntime {
   environment;
-  vmRunnerPath;
   workspace;
-  constructor(environment, vmRunnerPath) {
+  constructor(environment) {
     this.environment = environment;
-    this.vmRunnerPath = vmRunnerPath;
-    this.workspace = toForwardSlashPath(path6.resolve(environment.GITHUB_WORKSPACE || process.cwd()));
+    this.workspace = toForwardSlashPath(path5.resolve(environment.GITHUB_WORKSPACE || process.cwd()));
   }
   createBundler() {
     return new RspackInlineScriptBundler({
-      tempFolder: this.getEnvironmentValue("RUNNER_TEMP"),
       workspace: this.workspace
     });
   }
@@ -24480,31 +24538,35 @@ class ActionRuntime {
   }
   async run() {
     const executionState = await this.createExecutionState();
-    const bundle = await this.createBundler().bundle(executionState.code);
-    const runner = new NodeModuleRunner({
+    const bundle = await this.createBundler().bundle({
       bindings: executionState.bindings,
-      bundle,
-      environment: this.getExecutionEnvironment(executionState.token),
-      globals: executionState.globals,
-      vmRunnerPath: this.vmRunnerPath,
-      workspace: this.workspace
+      code: executionState.code,
+      globals: executionState.globals
     });
-    await runner.run();
+    try {
+      const runner = new NodeModuleRunner({
+        bundleFile: bundle.file,
+        environment: this.getExecutionEnvironment(executionState.token),
+        workspace: this.workspace
+      });
+      await runner.run();
+    } finally {
+      bundle.cleanup();
+    }
   }
 }
 
 // src/main.ts
 var actionEntryPath = import.meta.filename;
-var vmRunnerPath = fileURLToPath(new URL(`./vm-runner${path7.extname(import.meta.filename)}`, import.meta.url));
 var isMainModule = () => {
   const entryPath = process.argv[1];
   if (!entryPath) {
     return false;
   }
-  return path7.resolve(entryPath) === actionEntryPath;
+  return path6.resolve(entryPath) === actionEntryPath;
 };
 var runAction = async (environment = process.env) => {
-  const runtime = new ActionRuntime(environment, vmRunnerPath);
+  const runtime = new ActionRuntime(environment);
   await runtime.run();
 };
 var main_default = runAction;

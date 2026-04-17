@@ -23,6 +23,5 @@ node_modules/
 
 !/dist/
 !/dist/action.js
-!/dist/vm-runner.js
 !/dist/node_modules/
 !/dist/node_modules/**

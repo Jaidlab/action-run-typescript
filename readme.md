@@ -45,7 +45,7 @@ Your inline code runs in a dedicated Node.js 24 child process from the workflow 
 - every top-level field from `with.globals` – these are assigned after the built-in bindings, so they can override names like `matrix`, `strategy`, `steps` or even `core`
 - standard Node globals such as `fetch`, `console`, `process`, `Buffer`, `URL` and friends
 
-Because the bindings are real globals in the VM context, bundled local modules can use them too.
+Bindings are injected during bundling and also assigned onto `globalThis` before your code runs, so bundled local modules can use either bare identifiers like `matrix` or explicit access like `globalThis.matrix`.
 
 ## Passing extra globals
 
@@ -86,7 +86,7 @@ If you do not pass `steps`, the action still tries to populate `steps` and `work
 
 ## Imports and bundling
 
-The inline script is first bundled with Rspack from the workspace root and then evaluated in the VM. This means:
+The inline script is bundled with Rspack from the workspace root into a temporary module inside the workspace and then executed directly with Node. This means:
 
 - relative imports behave as expected from the workspace root
 - local `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs` and `.json` files are bundled before execution
@@ -120,7 +120,7 @@ await core.summary.addRaw('# summary').write()
 
 - GitHub context is gathered from the Actions toolkit instead of being passed through action inputs.
 - `matrix`, `strategy` and the real `steps` context are not available directly through the Actions toolkit. Use `globals` when you need them.
-- The inline script is bundled with Rspack and then evaluated through `vm.SourceTextModule` in a dedicated child Node process started with `--experimental-vm-modules`.
+- The inline script is bundled with Rspack, written to a temporary folder inside the workspace and then executed directly by Node in a dedicated child process.
 - `GITHUB_TOKEN` is exposed to the script environment when available.
 - The script runs from the workflow workspace root, not from the action repository.
 - No Bun runtime is required in your workflow.

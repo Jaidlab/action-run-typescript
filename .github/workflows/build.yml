@@ -1,0 +1,68 @@
+name: build
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: checkout
+      uses: actions/checkout@v6.0.2
+    - name: buildDockerImage
+      run: docker build --file Dockerfile --tag action-run-typescript:test .
+    - name: analyzeDockerImage
+      run: |
+        mkdir -p out
+        docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          -v "$PWD/out:/out" \
+          wagoodman/dive:v0.13.1 \
+          action-run-typescript:test \
+          --json /out/dive.json
+    - name: assertDiveReport
+      run: |
+        node --input-type=module <<'EOF'
+        import assert from 'node:assert/strict'
+        import fs from 'node:fs'
+
+        const report = JSON.parse(fs.readFileSync('out/dive.json', 'utf8'))
+
+        assert.deepEqual([...Object.keys(report)].sort(), ['image', 'layer'])
+        assert.ok(Array.isArray(report.layer), 'Expected layer to be an array.')
+        assert.ok(report.layer.length > 0, 'Expected at least one layer in the dive report.')
+
+        assert.deepEqual([...Object.keys(report.image)].sort(), ['efficiencyScore', 'fileReference', 'inefficientBytes', 'sizeBytes'])
+        assert.equal(typeof report.image.sizeBytes, 'number')
+        assert.ok(report.image.sizeBytes > 0, 'Expected a positive image size.')
+        assert.equal(typeof report.image.inefficientBytes, 'number')
+        assert.ok(report.image.inefficientBytes >= 0, 'Expected a non-negative inefficient byte count.')
+        assert.equal(typeof report.image.efficiencyScore, 'number')
+        assert.ok(report.image.efficiencyScore >= 0 && report.image.efficiencyScore <= 1, 'Expected an efficiency score between 0 and 1.')
+        assert.ok(Array.isArray(report.image.fileReference), 'Expected fileReference to be an array.')
+
+        for (const [index, layer] of report.layer.entries()) {
+          assert.deepEqual([...Object.keys(layer)].sort(), ['command', 'digestId', 'fileList', 'id', 'index', 'sizeBytes'])
+          assert.equal(layer.index, index)
+          assert.equal(typeof layer.id, 'string')
+          assert.equal(typeof layer.digestId, 'string')
+          assert.equal(typeof layer.command, 'string')
+          assert.equal(typeof layer.sizeBytes, 'number')
+          assert.ok(Array.isArray(layer.fileList), 'Expected each layer to include a fileList array.')
+        }
+
+        const filePaths = new Set(report.layer.flatMap(layer => layer.fileList.map(file => file.path)))
+        const filePathList = [...filePaths]
+        for (const expectedPath of ['/usr/local/bin/bun', '/action/package.json', '/action/src/main.ts']) {
+          assert.ok(filePaths.has(expectedPath), `Expected ${expectedPath} in the dive report.`)
+        }
+        assert.ok(filePathList.some(path => path === '/action/node_modules/json5' || path.startsWith('/action/node_modules/json5/') || /\/action\/node_modules\/\.bun\/[^/]+\/node_modules\/json5(?:\/|$)/.test(path)), 'Expected json5 to be installed in the image.')
+        assert.ok(!filePaths.has('/action/dist/action.js'), 'Did not expect dist/action.js in the runtime image.')
+
+        console.log(JSON.stringify({
+          efficiencyScore: report.image.efficiencyScore,
+          fileCount: filePaths.size,
+          layerCount: report.layer.length,
+          sizeBytes: report.image.sizeBytes,
+        }, null, 2))
+        EOF

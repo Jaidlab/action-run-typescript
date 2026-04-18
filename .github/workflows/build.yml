@@ -53,6 +53,78 @@ jobs:
       uses: actions/checkout@v6.0.2
     - name: buildDockerImage
       run: docker build --file Dockerfile --tag action-run-typescript:test .
+    - name: inspectDockerImageWithSkopeo
+      run: |
+        mkdir -p out
+        docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          quay.io/skopeo/stable:v1.22.2 \
+          inspect docker-daemon:action-run-typescript:test > out/skopeo-inspect.json
+    - name: summarizeSkopeoInspect
+      run: |
+        node --input-type=module <<'EOF'
+        import fs from 'node:fs'
+
+        const inputFile = 'out/skopeo-inspect.json'
+        const outputFile = 'out/skopeo-inspect.yml'
+        const imageReference = 'docker-daemon:action-run-typescript:test'
+        const inspect = JSON.parse(fs.readFileSync(inputFile, 'utf8'))
+
+        const indentUnit = '  '
+        const quoteKey = key => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) ? key : JSON.stringify(key)
+        const serializeScalar = value => {
+          if (value === null) {
+            return 'null'
+          }
+          if (typeof value === 'string') {
+            return JSON.stringify(value)
+          }
+          return String(value)
+        }
+        const serializeYaml = (value, depth = 0) => {
+          const indent = indentUnit.repeat(depth)
+          if (Array.isArray(value)) {
+            if (value.length === 0) {
+              return `${indent}[]`
+            }
+            return value.map(item => {
+              if (item && typeof item === 'object') {
+                return `${indent}-\n${serializeYaml(item, depth + 1)}`
+              }
+              return `${indent}- ${serializeScalar(item)}`
+            }).join('\n')
+          }
+          if (value && typeof value === 'object') {
+            const entries = Object.entries(value)
+            if (entries.length === 0) {
+              return `${indent}{}`
+            }
+            return entries.map(([key, entryValue]) => {
+              const formattedKey = `${indent}${quoteKey(key)}:`
+              if (entryValue && typeof entryValue === 'object') {
+                return `${formattedKey}\n${serializeYaml(entryValue, depth + 1)}`
+              }
+              return `${formattedKey} ${serializeScalar(entryValue)}`
+            }).join('\n')
+          }
+          return `${indent}${serializeScalar(value)}`
+        }
+
+        const yaml = `---\n${serializeYaml(inspect)}\n`
+        fs.writeFileSync(outputFile, yaml)
+        fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+          '## skopeo inspect',
+          '',
+          '<details>',
+          `<summary>${imageReference}</summary>`,
+          '',
+          '```yaml',
+          yaml.trimEnd(),
+          '```',
+          '</details>',
+          '',
+        ].join('\n'))
+        EOF
     - name: analyzeDockerImage
       run: |
         mkdir -p out

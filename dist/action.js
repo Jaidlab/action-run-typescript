@@ -19136,10 +19136,10 @@ var require_lib2 = __commonJS((exports, module) => {
 });
 
 // src/main.ts
-import path6 from "node:path";
+import path7 from "node:path";
 
 // src/lib/ActionRuntime.ts
-import path5 from "node:path";
+import path6 from "node:path";
 
 // node_modules/@actions/http-client/lib/index.js
 var tunnel = __toESM(require_tunnel(), 1);
@@ -24124,13 +24124,222 @@ class NodeModuleRunner {
 }
 
 // src/lib/rspack/RspackInlineScriptBundler.ts
-import { randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import path4 from "node:path";
+import { randomUUID as randomUUID2 } from "node:crypto";
+import { existsSync as existsSync3, mkdtempSync as mkdtempSync2, readFileSync as readFileSync3, rmSync as rmSync2, writeFileSync } from "node:fs";
+import path5 from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
-import rspack from "@rspack/core";
-var actionCoreAlias = "__action_run_typescript_action_core__";
+
+// src/lib/rspack/ensureRspackBindingFile.ts
+import { spawn as spawn3, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { copyFileSync, existsSync as existsSync2, mkdirSync, mkdtempSync, readFileSync as readFileSync2, renameSync, rmSync } from "node:fs";
+import os3 from "node:os";
+import path4 from "node:path";
+var toChildEnvironment = (environment) => Object.fromEntries(Object.entries(environment).filter(([, value]) => value !== undefined));
+var isMuslFromChildProcess = () => {
+  try {
+    return spawnSync("ldd", ["--version"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).stdout.includes("musl");
+  } catch {
+    return false;
+  }
+};
+var isMuslFromFilesystem = () => {
+  try {
+    return readFileSync2("/usr/bin/ldd", "utf8").includes("musl");
+  } catch {
+    return null;
+  }
+};
+var isMusl = () => {
+  if (process.platform !== "linux") {
+    return false;
+  }
+  return isMuslFromFilesystem() ?? isMuslFromChildProcess();
+};
+var getNpmExecutable = () => {
+  const fileName = process.platform === "win32" ? "npm.cmd" : "npm";
+  const siblingFile = path4.join(path4.dirname(process.execPath), fileName);
+  if (existsSync2(siblingFile)) {
+    return siblingFile;
+  }
+  return fileName;
+};
+var spawnNpm = (args, options) => {
+  const npmExecutable = getNpmExecutable();
+  if (process.platform === "win32") {
+    return spawn3(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", npmExecutable, ...args], options);
+  }
+  return spawn3(npmExecutable, args, options);
+};
+var getRspackBindingDescriptor = () => {
+  switch (process.platform) {
+    case "darwin": {
+      switch (process.arch) {
+        case "arm64": {
+          return {
+            fileName: "rspack.darwin-arm64.node",
+            packageName: "@rspack/binding-darwin-arm64"
+          };
+        }
+        case "x64": {
+          return {
+            fileName: "rspack.darwin-x64.node",
+            packageName: "@rspack/binding-darwin-x64"
+          };
+        }
+      }
+      break;
+    }
+    case "linux": {
+      const libc = isMusl() ? "musl" : "gnu";
+      switch (process.arch) {
+        case "arm64": {
+          return {
+            fileName: `rspack.linux-arm64-${libc}.node`,
+            packageName: `@rspack/binding-linux-arm64-${libc}`
+          };
+        }
+        case "x64": {
+          return {
+            fileName: `rspack.linux-x64-${libc}.node`,
+            packageName: `@rspack/binding-linux-x64-${libc}`
+          };
+        }
+      }
+      break;
+    }
+    case "win32": {
+      switch (process.arch) {
+        case "arm64": {
+          return {
+            fileName: "rspack.win32-arm64-msvc.node",
+            packageName: "@rspack/binding-win32-arm64-msvc"
+          };
+        }
+        case "x64": {
+          return {
+            fileName: "rspack.win32-x64-msvc.node",
+            packageName: "@rspack/binding-win32-x64-msvc"
+          };
+        }
+      }
+      break;
+    }
+  }
+  throw new Error(`Unsupported platform or architecture for the published Rspack runtime: ${process.platform}/${process.arch}. Supported targets are linux-x64, linux-arm64, win32-x64, win32-arm64, darwin-x64 and darwin-arm64.`);
+};
+var waitForChildProcess2 = (child2) => new Promise((resolve2, reject) => {
+  child2.once("error", reject);
+  child2.once("close", (exitCode, signal) => {
+    resolve2({
+      exitCode,
+      signal
+    });
+  });
+});
+var installRspackBindingPackage = async ({
+  installationFolder,
+  packageName,
+  version
+}) => {
+  const stdoutChunks = [];
+  const stderrChunks = [];
+  const child2 = spawnNpm([
+    "install",
+    "--loglevel=error",
+    "--no-audit",
+    "--no-fund",
+    "--no-package-lock",
+    "--no-save",
+    "--ignore-scripts",
+    "--prefer-offline",
+    "--prefix",
+    installationFolder,
+    `${packageName}@${version}`
+  ], {
+    env: toChildEnvironment({
+      ...process.env,
+      npm_config_audit: "false",
+      npm_config_fund: "false",
+      npm_config_loglevel: "error",
+      npm_config_update_notifier: "false"
+    }),
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true
+  });
+  const stdout = child2.stdout;
+  const stderr = child2.stderr;
+  stdout.setEncoding("utf8");
+  stderr.setEncoding("utf8");
+  stdout.on("data", (chunk) => {
+    stdoutChunks.push(chunk);
+  });
+  stderr.on("data", (chunk) => {
+    stderrChunks.push(chunk);
+  });
+  const { exitCode, signal } = await waitForChildProcess2(child2);
+  if (signal) {
+    throw new Error(`npm install for ${packageName}@${version} was terminated by signal ${signal}.`);
+  }
+  const normalizedExitCode = exitCode ?? 0;
+  if (normalizedExitCode === 0) {
+    return;
+  }
+  const output = [stderrChunks.join("").trim(), stdoutChunks.join("").trim()].filter(Boolean).join(`
+
+`);
+  throw new Error(output ? `Failed to install ${packageName}@${version} for the published Rspack runtime.
+
+${output}` : `Failed to install ${packageName}@${version} for the published Rspack runtime with exit code ${normalizedExitCode}.`);
+};
+var ensureRspackBindingFile = async ({
+  cacheRootFolder = path4.join(process.env.RUNNER_TEMP || os3.tmpdir(), "action-run-typescript", "rspack-binding-cache"),
+  version
+}) => {
+  const descriptor = getRspackBindingDescriptor();
+  const packageCacheFolder = path4.join(cacheRootFolder, version, descriptor.packageName.replaceAll("/", "__"));
+  const bindingFile = path4.join(packageCacheFolder, descriptor.fileName);
+  if (existsSync2(bindingFile)) {
+    return bindingFile;
+  }
+  mkdirSync(packageCacheFolder, { recursive: true });
+  const installationFolder = mkdtempSync(path4.join(packageCacheFolder, "install-"));
+  try {
+    await installRspackBindingPackage({
+      installationFolder,
+      packageName: descriptor.packageName,
+      version
+    });
+    const installedBindingFile = path4.join(installationFolder, "node_modules", ...descriptor.packageName.split("/"), descriptor.fileName);
+    if (!existsSync2(installedBindingFile)) {
+      throw new Error(`Installed package ${descriptor.packageName}@${version} does not contain ${descriptor.fileName}.`);
+    }
+    if (!existsSync2(bindingFile)) {
+      const temporaryBindingFile = path4.join(packageCacheFolder, `${descriptor.fileName}.${randomUUID()}.tmp`);
+      copyFileSync(installedBindingFile, temporaryBindingFile);
+      try {
+        renameSync(temporaryBindingFile, bindingFile);
+      } catch (error) {
+        rmSync(temporaryBindingFile, { force: true });
+        if (!existsSync2(bindingFile)) {
+          throw error;
+        }
+      }
+    }
+    return bindingFile;
+  } finally {
+    rmSync(installationFolder, {
+      force: true,
+      recursive: true
+    });
+  }
+};
+
+// src/lib/rspack/RspackInlineScriptBundler.ts
 var globalsAlias = "__action_run_typescript_globals__";
 var injectedIdentifierPattern = /^[\p{ID_Start}$_][\p{ID_Continue}$\u200C\u200D]*$/u;
 var closeCompiler = (compiler) => promisify(compiler.close.bind(compiler))();
@@ -24152,36 +24361,59 @@ var getRspackOutput = async (compiler) => {
     await closeCompiler(compiler);
   }
 };
+var getVendorRspackFiles = () => ({
+  core: fileURLToPath(new URL("vendor/@rspack/core/dist/index.js", import.meta.url)),
+  packageJson: fileURLToPath(new URL("vendor/@rspack/core/package.json", import.meta.url))
+});
+var getVendorRspackVersion = (packageJsonFile) => {
+  const packageJson = JSON.parse(readFileSync3(packageJsonFile, "utf8"));
+  if (!packageJson.version) {
+    throw new Error(`Vendored @rspack/core package metadata in ${packageJsonFile} does not contain a version.`);
+  }
+  return packageJson.version;
+};
 var isBundledRequest = (request2) => {
   if (!request2) {
     return true;
   }
-  return request2.startsWith(".") || request2.startsWith("/") || request2.startsWith("file:") || request2.startsWith("#") || request2.startsWith("__action_run_typescript_") || path4.isAbsolute(request2);
+  return request2.startsWith(".") || request2.startsWith("/") || request2.startsWith("file:") || request2.startsWith("#") || request2.startsWith("__action_run_typescript_") || path5.isAbsolute(request2);
 };
 var isPathInside = (parentFolder, childPath) => {
-  const normalizedParentFolder = path4.resolve(parentFolder);
-  const normalizedChildPath = path4.resolve(childPath);
-  return normalizedChildPath === normalizedParentFolder || normalizedChildPath.startsWith(`${normalizedParentFolder}${path4.sep}`);
+  const normalizedParentFolder = path5.resolve(parentFolder);
+  const normalizedChildPath = path5.resolve(childPath);
+  return normalizedChildPath === normalizedParentFolder || normalizedChildPath.startsWith(normalizedParentFolder + path5.sep);
 };
 var isProbablyJsxParseFailure = (error) => {
   const message = error instanceof Error ? error.message : String(error);
   return message.includes("JSX") || message.includes("Unexpected token") && message.includes("<") || message.includes("files with the .mts or .cts extension");
 };
 var isValidInjectedIdentifier = (name) => injectedIdentifierPattern.test(name);
-var serializeJavaScriptValue = (value) => JSON.stringify(value, null, 2) ?? "undefined";
-var toForwardSlashRelativePath = (from, to) => path4.relative(from, to).replaceAll("\\", "/");
+var loadRspack = async () => {
+  const vendorRspackFiles = getVendorRspackFiles();
+  if (existsSync3(vendorRspackFiles.core) && existsSync3(vendorRspackFiles.packageJson)) {
+    if (!process.env.RSPACK_BINDING || !existsSync3(process.env.RSPACK_BINDING)) {
+      process.env.RSPACK_BINDING = await ensureRspackBindingFile({
+        version: getVendorRspackVersion(vendorRspackFiles.packageJson)
+      });
+    }
+    const vendorRspackModule = await import(pathToFileURL(vendorRspackFiles.core).href);
+    return vendorRspackModule.default;
+  }
+  const localRspackModule = await import("@rspack/core");
+  return localRspackModule.default;
+};
+var serializeJavaScriptValue = (value) => String(JSON.stringify(value, null, 2));
+var toForwardSlashRelativePath = (from, to) => path5.relative(from, to).replaceAll("\\", "/");
 var createGlobalsModuleSource = ({
   bindings,
-  coreImportSpecifier,
   globals,
   exportNamedValues
 }) => {
-  const lines = [`import * as actionCore from ${JSON.stringify(coreImportSpecifier)}`];
+  const lines = [];
   const mergedExpressions = new Map;
   for (const [name, value] of Object.entries(bindings)) {
     mergedExpressions.set(name, serializeJavaScriptValue(value));
   }
-  mergedExpressions.set("core", "actionCore");
   for (const [name, value] of Object.entries(globals)) {
     mergedExpressions.set(name, serializeJavaScriptValue(value));
   }
@@ -24208,6 +24440,97 @@ var createGlobalsModuleSource = ({
 `)}
 `;
 };
+var createCompiler = ({
+  entryFile,
+  globalsProvidedFile,
+  globalsRuntimeFileName,
+  injectedGlobalNames,
+  outputFolder,
+  rspack,
+  workspace
+}) => rspack({
+  context: workspace,
+  mode: "none",
+  target: "node",
+  devtool: false,
+  entry: entryFile,
+  experiments: {
+    outputModule: true,
+    topLevelAwait: true
+  },
+  externalsPresets: {
+    node: true
+  },
+  externalsType: "module",
+  externals: [
+    ({ context: context3 = "", request: request2 }) => {
+      if (isBundledRequest(request2) || !isPathInside(workspace, context3)) {
+        return;
+      }
+      return request2;
+    }
+  ],
+  module: {
+    rules: [
+      {
+        test: /\.[cm]?[jt]sx?$/,
+        type: "javascript/auto",
+        loader: "builtin:swc-loader",
+        options: {
+          detectSyntax: "auto",
+          jsc: {
+            target: "es2023",
+            transform: {
+              react: {
+                development: false,
+                runtime: "automatic"
+              }
+            }
+          }
+        }
+      }
+    ]
+  },
+  optimization: {
+    minimize: false,
+    runtimeChunk: false,
+    splitChunks: false
+  },
+  output: {
+    chunkFormat: "module",
+    chunkLoading: false,
+    filename: "bundle.mjs",
+    library: {
+      type: "module"
+    },
+    module: true,
+    path: outputFolder
+  },
+  plugins: [
+    new rspack.ProvidePlugin(Object.fromEntries([...injectedGlobalNames].filter(isValidInjectedIdentifier).map((name) => [name, [globalsAlias, name]]))),
+    new rspack.BannerPlugin({
+      raw: true,
+      banner: [
+        `import __action_run_typescript_globals__ from ${JSON.stringify(`./${globalsRuntimeFileName}`)};`,
+        "for (const [name, value] of Object.entries(__action_run_typescript_globals__)) {",
+        "  Reflect.defineProperty(globalThis, name, {",
+        "    configurable: true,",
+        "    enumerable: true,",
+        "    value,",
+        "    writable: true,",
+        "  });",
+        "}"
+      ].join(`
+`)
+    })
+  ],
+  resolve: {
+    alias: {
+      [globalsAlias]: globalsProvidedFile
+    },
+    extensions: [".tsx", ".ts", ".jsx", ".js", ".mts", ".cts", ".mjs", ".cjs", ".json"]
+  }
+});
 
 class RspackInlineScriptBundler {
   options;
@@ -24235,119 +24558,42 @@ class RspackInlineScriptBundler {
     code,
     globals
   }, extension) {
-    const nonce = randomUUID();
-    const outputFolder = mkdtempSync(path4.join(this.options.workspace, ".action-run-typescript-"));
-    const bundleFile = path4.join(outputFolder, "bundle.mjs");
-    const globalsProvidedFile = path4.join(outputFolder, "globals.provided.mjs");
-    const globalsRuntimeFile = path4.join(outputFolder, "globals.mjs");
-    const bootstrapEntryFile = path4.join(outputFolder, "entry.ts");
-    const userEntryFile = path4.join(this.options.workspace, `__action_run_typescript_inline__.${nonce}${extension}`);
-    const actionCoreFile = fileURLToPath(import.meta.resolve("@actions/core"));
-    const injectedGlobalNames = new Set([...Object.keys(bindings), "core", ...Object.keys(globals)]);
+    const nonce = randomUUID2();
+    const outputFolder = mkdtempSync2(path5.join(this.options.workspace, ".action-run-typescript-"));
+    const bundleFile = path5.join(outputFolder, "bundle.mjs");
+    const globalsProvidedFile = path5.join(outputFolder, "globals.provided.mjs");
+    const globalsRuntimeFile = path5.join(outputFolder, "globals.mjs");
+    const bootstrapEntryFile = path5.join(outputFolder, "entry.ts");
+    const userEntryFile = path5.join(this.options.workspace, `__action_run_typescript_inline__.${nonce}${extension}`);
+    const injectedGlobalNames = new Set([...Object.keys(bindings), ...Object.keys(globals)]);
     const cleanup = () => {
-      rmSync(outputFolder, {
+      rmSync2(outputFolder, {
         force: true,
         recursive: true
       });
-      rmSync(userEntryFile, { force: true });
+      rmSync2(userEntryFile, { force: true });
     };
+    const rspack = await loadRspack();
     writeFileSync(userEntryFile, createUserEntrySource(code), "utf8");
     writeFileSync(globalsProvidedFile, createGlobalsModuleSource({
       bindings,
-      coreImportSpecifier: actionCoreAlias,
       exportNamedValues: true,
       globals
     }), "utf8");
     writeFileSync(globalsRuntimeFile, createGlobalsModuleSource({
       bindings,
-      coreImportSpecifier: pathToFileURL(actionCoreFile).href,
       exportNamedValues: false,
       globals
     }), "utf8");
     writeFileSync(bootstrapEntryFile, createBootstrapEntrySource(toForwardSlashRelativePath(outputFolder, userEntryFile)), "utf8");
-    const compiler = rspack({
-      context: this.options.workspace,
-      mode: "none",
-      target: "node",
-      devtool: false,
-      entry: bootstrapEntryFile,
-      experiments: {
-        outputModule: true,
-        topLevelAwait: true
-      },
-      externalsPresets: {
-        node: true
-      },
-      externalsType: "module",
-      externals: [
-        ({ context: context3 = "", request: request2 }) => {
-          if (isBundledRequest(request2) || !isPathInside(this.options.workspace, context3)) {
-            return;
-          }
-          return request2;
-        }
-      ],
-      module: {
-        rules: [
-          {
-            test: /\.[cm]?[jt]sx?$/,
-            type: "javascript/auto",
-            loader: "builtin:swc-loader",
-            options: {
-              detectSyntax: "auto",
-              jsc: {
-                target: "es2023",
-                transform: {
-                  react: {
-                    development: false,
-                    runtime: "automatic"
-                  }
-                }
-              }
-            }
-          }
-        ]
-      },
-      optimization: {
-        minimize: false,
-        runtimeChunk: false,
-        splitChunks: false
-      },
-      output: {
-        chunkFormat: "module",
-        chunkLoading: false,
-        filename: path4.basename(bundleFile),
-        library: {
-          type: "module"
-        },
-        module: true,
-        path: outputFolder
-      },
-      plugins: [
-        new rspack.ProvidePlugin(Object.fromEntries([...injectedGlobalNames].filter(isValidInjectedIdentifier).map((name) => [name, [globalsAlias, name]]))),
-        new rspack.BannerPlugin({
-          raw: true,
-          banner: [
-            `import __action_run_typescript_globals__ from ${JSON.stringify(`./${path4.basename(globalsRuntimeFile)}`)};`,
-            "for (const [name, value] of Object.entries(__action_run_typescript_globals__)) {",
-            "  Reflect.defineProperty(globalThis, name, {",
-            "    configurable: true,",
-            "    enumerable: true,",
-            "    value,",
-            "    writable: true,",
-            "  });",
-            "}"
-          ].join(`
-`)
-        })
-      ],
-      resolve: {
-        alias: {
-          [actionCoreAlias]: actionCoreFile,
-          [globalsAlias]: globalsProvidedFile
-        },
-        extensions: [".tsx", ".ts", ".jsx", ".js", ".mts", ".cts", ".mjs", ".cjs", ".json"]
-      }
+    const compiler = createCompiler({
+      entryFile: bootstrapEntryFile,
+      globalsProvidedFile,
+      globalsRuntimeFileName: path5.basename(globalsRuntimeFile),
+      injectedGlobalNames,
+      outputFolder,
+      rspack,
+      workspace: this.options.workspace
     });
     try {
       await getRspackOutput(compiler);
@@ -24446,7 +24692,7 @@ class ActionRuntime {
   workspace;
   constructor(environment) {
     this.environment = environment;
-    this.workspace = toForwardSlashPath(path5.resolve(environment.GITHUB_WORKSPACE || process.cwd()));
+    this.workspace = toForwardSlashPath(path6.resolve(environment.GITHUB_WORKSPACE || process.cwd()));
   }
   createBundler() {
     return new RspackInlineScriptBundler({
@@ -24563,7 +24809,7 @@ var isMainModule = () => {
   if (!entryPath) {
     return false;
   }
-  return path6.resolve(entryPath) === actionEntryPath;
+  return path7.resolve(entryPath) === actionEntryPath;
 };
 var runAction = async (environment = process.env) => {
   const runtime = new ActionRuntime(environment);

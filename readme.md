@@ -34,7 +34,6 @@ jobs:
 
 Your inline code runs in a dedicated Node.js 24 child process from the workflow workspace root. These bindings are available without importing anything:
 
-- `core` – the real `@actions/core` module
 - `github` – a best-effort GitHub context built from `@actions/github.context`, plus compatibility aliases like `github.repository`, `github.run_id`, `github.event` and `github.repo`
 - `job` – a best-effort job context. It always includes `job.id` from `GITHUB_JOB` and may also include `name`, `status`, `conclusion`, `workflow_job_id`, `workflowJobId` and `url`
 - `runner` – a best-effort runner context built from runner environment variables and `@actions/core.platform`
@@ -42,7 +41,7 @@ Your inline code runs in a dedicated Node.js 24 child process from the workflow 
 - `strategy` – `{}` by default
 - `steps` – `{}` by default or a best-effort fallback derived from the workflow jobs API
 - `workflowJob` – best-effort metadata for the current workflow job, including its step list when available
-- every top-level field from `with.globals` – these are assigned after the built-in bindings, so they can override names like `matrix`, `strategy`, `steps` or even `core`
+- every top-level field from `with.globals` – these are assigned after the built-in bindings, so they can override names like `matrix`, `strategy` or `steps`
 - standard Node globals such as `fetch`, `console`, `process`, `Buffer`, `URL` and friends
 
 Bindings are injected during bundling and also assigned onto `globalThis` before your code runs, so bundled local modules can use either bare identifiers like `matrix` or explicit access like `globalThis.matrix`.
@@ -92,6 +91,7 @@ The inline script is bundled with Rspack from the workspace root into a temporar
 - local `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs` and `.json` files are bundled before execution
 - inline TSX and local TSX or JSX imports are supported
 - bare package imports stay external and resolve from the workspace at runtime
+- the published action downloads the pinned platform-specific Rspack native binding into the runner temp directory on demand
 
 Example:
 
@@ -106,15 +106,15 @@ Example:
 
 JSX and TSX use Rspack’s SWC-based React automatic runtime. If your code uses JSX, the corresponding runtime helpers, such as `react/jsx-runtime`, must be resolvable from the workspace.
 
-## `core`
+## Using `@actions/core`
 
-The injected `core` global is the actual `@actions/core` module, not a local shim. That means its API and behavior match upstream, including helpers like `setOutput`, `exportVariable`, `saveState`, `group`, `summary`, `platform` and the rest of the package.
-
-For example, the summary API behaves exactly like `@actions/core`, so writing a summary looks like this:
+`@actions/core` is no longer injected as a global. If you want it, import it explicitly from your script:
 
 ```ts
-await core.summary.addRaw('# summary').write()
+import * as core from '@actions/core'
 ```
+
+Because bare package imports stay external, that package must be resolvable from the runtime environment of your workflow.
 
 ## Notes
 
@@ -124,3 +124,4 @@ await core.summary.addRaw('# summary').write()
 - `GITHUB_TOKEN` is exposed to the script environment when available.
 - The script runs from the workflow workspace root, not from the action repository.
 - No Bun runtime is required in your workflow.
+- The published action installs the pinned platform-specific Rspack native binding via npm into the runner temp directory on demand.

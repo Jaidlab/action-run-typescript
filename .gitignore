@@ -23,5 +23,5 @@ node_modules/
 
 !/dist/
 !/dist/action.js
-!/dist/node_modules/
-!/dist/node_modules/**
+!/dist/vendor/
+!/dist/vendor/**

@@ -176,36 +176,25 @@ await writeFile('tsx.json', JSON.stringify({
       })
     }
   })
-  void it('should expose the real @actions/core module through core', async () => {
+  void it('should not inject core as a global', async () => {
     const workspace = await createWorkspace()
     try {
-      const outputFile = path.join(workspace, 'github-output.txt')
-      const environmentFile = path.join(workspace, 'github-env.txt')
-      const pathFile = path.join(workspace, 'github-path.txt')
-      const stateFile = path.join(workspace, 'github-state.txt')
-      const summaryFile = path.join(workspace, 'github-step-summary.md')
-      await Promise.all([outputFile, environmentFile, pathFile, stateFile, summaryFile].map(file => writeFile(file, '')))
+      const outputFile = path.join(workspace, 'core.json')
       await runAction(makeEnvironment({
-        INPUT_CODE: `core.setOutput('answer', 42)
-core.exportVariable('COLOR', 'blue')
-core.addPath('./bin')
-core.saveState('stateful', {enabled: true})
-await core.summary.addRaw('# summary').write()
+        INPUT_CODE: `import {writeFile} from 'node:fs/promises'
+await writeFile('core.json', JSON.stringify({
+  direct: typeof core,
+  throughGlobalThis: typeof globalThis.core,
+}))
 `,
-        GITHUB_ENV: environmentFile,
-        GITHUB_OUTPUT: outputFile,
-        GITHUB_PATH: pathFile,
         GITHUB_REPOSITORY: 'Jaidlab/action-run-typescript',
         GITHUB_RUN_ID: '1',
-        GITHUB_STATE: stateFile,
-        GITHUB_STEP_SUMMARY: summaryFile,
         GITHUB_WORKSPACE: workspace,
       }))
-      assert.deepEqual(parseWorkflowCommandFile(await readFile(outputFile, 'utf8')), {answer: '42'})
-      assert.deepEqual(parseWorkflowCommandFile(await readFile(environmentFile, 'utf8')), {COLOR: 'blue'})
-      assert.equal(normalizeLineEndings(await readFile(pathFile, 'utf8')), './bin\n')
-      assert.deepEqual(parseWorkflowCommandFile(await readFile(stateFile, 'utf8')), {stateful: '{"enabled":true}'})
-      assert.equal(await readFile(summaryFile, 'utf8'), '# summary')
+      assert.deepEqual(JSON.parse(await readFile(outputFile, 'utf8')), {
+        direct: 'undefined',
+        throughGlobalThis: 'undefined',
+      })
     } finally {
       await rm(workspace, {
         force: true,
@@ -213,11 +202,11 @@ await core.summary.addRaw('# summary').write()
       })
     }
   })
-  void it('should fail the action when core.setFailed is used', async () => {
+  void it('should fail the action when the child process exits with code 1', async () => {
     const workspace = await createWorkspace()
     try {
       await assert.rejects(runAction(makeEnvironment({
-        INPUT_CODE: "core.setFailed('broken')\n",
+        INPUT_CODE: 'process.exit(1)\n',
         GITHUB_REPOSITORY: 'Jaidlab/action-run-typescript',
         GITHUB_RUN_ID: '1',
         GITHUB_WORKSPACE: workspace,

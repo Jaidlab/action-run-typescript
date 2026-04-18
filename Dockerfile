@@ -5,6 +5,8 @@ ARG bunVersion=1.3.12
 
 FROM ${baseImage}
 
+ARG bunVersion
+
 ENV DEBIAN_FRONTEND=noninteractive
 ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 
@@ -35,4 +37,4 @@ RUN bun install --frozen-lockfile --production --ignore-scripts \
 
 COPY src ./src
 
-ENTRYPOINT ["bun", "./src/main.ts"]
+ENTRYPOINT ["bun", "/action/src/main.ts"]

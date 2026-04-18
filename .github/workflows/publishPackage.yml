@@ -12,6 +12,45 @@ jobs:
     steps:
     - name: checkout
       uses: actions/checkout@v5.0.0
+    - name: runLocalAction
+      uses: ./
+      with:
+        globals: |-
+          {
+            expectedRepository: ${{ toJson(github.repository) }},
+          }
+        code: |-
+          import {mkdir} from 'node:fs/promises'
+          import packageJson from './package.json'
+          import {globby} from 'globby'
+
+          await mkdir('out', {recursive: true})
+          await Bun.write('out/action-self-test.json', JSON.stringify({
+            currentWorkingDirectory: process.cwd(),
+            expectedWorkspace: process.env.GITHUB_WORKSPACE,
+            globbyType: typeof globby,
+            packageName: packageJson.name,
+            repository: github.repository,
+            expectedRepository,
+          }, null, 2))
+    - name: assertSelfTestOutput
+      run: |
+        node --input-type=module <<'EOF'
+        import assert from 'node:assert/strict'
+        import fs from 'node:fs'
+
+        const output = JSON.parse(fs.readFileSync('out/action-self-test.json', 'utf8'))
+
+        assert.ok(output.expectedWorkspace, 'Expected GITHUB_WORKSPACE to be set.')
+        assert.equal(output.currentWorkingDirectory, output.expectedWorkspace)
+        assert.equal(output.globbyType, 'function')
+        assert.equal(output.packageName, 'action-run-typescript')
+        assert.equal(output.repository, output.expectedRepository)
+
+        console.log(JSON.stringify(output, null, 2))
+        EOF
+    - name: removeSelfTestOutput
+      run: rm -rf out
     - name: setupBun
       uses: oven-sh/setup-bun@v2.0.2
       with:

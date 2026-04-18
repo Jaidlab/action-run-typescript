@@ -15,13 +15,5 @@
 # dotenv
 .env
 
-
 # Bun
 node_modules/
-
-# GitHub Actions
-
-!/dist/
-!/dist/action.js
-!/dist/vendor/
-!/dist/vendor/**

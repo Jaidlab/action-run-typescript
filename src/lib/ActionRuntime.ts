@@ -9,12 +9,11 @@ import * as actionCore from '@actions/core'
 import * as actionGithub from '@actions/github'
 import json5 from 'json5'
 
+import {BunInlineScriptRunner} from './bun/BunInlineScriptRunner.ts'
 import {getEnvironmentValue, normalizeEnvironmentValue, scrubbedEnvironmentNames} from './environment.ts'
 import {getCurrentWorkflowJob} from './github/getCurrentWorkflowJob.ts'
 import {toActionRuntimeGitHubContext} from './github/toActionRuntimeGitHubContext.ts'
 import {toWorkflowStepsFallback} from './github/toWorkflowStepsFallback.ts'
-import {NodeModuleRunner} from './node/NodeModuleRunner.ts'
-import {RspackInlineScriptBundler} from './rspack/RspackInlineScriptBundler.ts'
 import {toForwardSlashPath} from './toForwardSlashPath.ts'
 import {withPatchedProcessEnvironment} from './withPatchedProcessEnvironment.ts'
 
@@ -27,6 +26,7 @@ export interface ActionRuntimeEnvironment extends Record<string, string | undefi
   readonly INPUT_CODE?: string
   readonly 'INPUT_GITHUB-TOKEN'?: string
   readonly INPUT_GLOBALS?: string
+  readonly NODE_PATH?: string
   readonly RUNNER_ARCH?: string
   readonly RUNNER_NAME?: string
   readonly RUNNER_OS?: string
@@ -43,6 +43,13 @@ type ActionExecutionState = {
   readonly token?: string
 }
 
+const actionRootFolder = path.resolve(import.meta.dirname, '../..')
+const actionNodeModulesFolder = path.join(actionRootFolder, 'node_modules')
+const appendPathListEntry = (value: string | undefined, entry: string) => {
+  const previousEntries = value ? value.split(path.delimiter) : []
+  const entries = [...previousEntries, entry].filter(Boolean)
+  return [...new Set(entries)].join(path.delimiter)
+}
 const createToolkitGitHubContext = () => {
   const GitHubContext = actionGithub.context.constructor as new () => ToolkitGitHubContext
   return new GitHubContext
@@ -96,12 +103,6 @@ export class ActionRuntime {
   constructor(environment: ActionRuntimeEnvironment) {
     this.environment = environment
     this.workspace = toForwardSlashPath(path.resolve(environment.GITHUB_WORKSPACE || process.cwd()))
-  }
-
-  createBundler() {
-    return new RspackInlineScriptBundler({
-      workspace: this.workspace,
-    })
   }
 
   async createExecutionState(): Promise<ActionExecutionState> {
@@ -160,6 +161,7 @@ export class ActionRuntime {
     if (token && !executionEnvironment.GITHUB_TOKEN) {
       executionEnvironment.GITHUB_TOKEN = token
     }
+    executionEnvironment.NODE_PATH = appendPathListEntry(executionEnvironment.NODE_PATH, actionNodeModulesFolder)
     return executionEnvironment
   }
 
@@ -198,20 +200,13 @@ export class ActionRuntime {
 
   async run() {
     const executionState = await this.createExecutionState()
-    const bundle = await this.createBundler().bundle({
+    const runner = new BunInlineScriptRunner({
       bindings: executionState.bindings,
       code: executionState.code,
+      environment: this.getExecutionEnvironment(executionState.token),
       globals: executionState.globals,
+      workspace: this.workspace,
     })
-    try {
-      const runner = new NodeModuleRunner({
-        bundleFile: bundle.file,
-        environment: this.getExecutionEnvironment(executionState.token),
-        workspace: this.workspace,
-      })
-      await runner.run()
-    } finally {
-      bundle.cleanup()
-    }
+    await runner.run()
   }
 }

@@ -66,6 +66,7 @@ const writeFakeReactJsxRuntime = async (workspace: string) => {
   await mkdir(reactFolder, {recursive: true})
   await writeFile(path.join(reactFolder, 'package.json'), JSON.stringify({
     exports: {
+      './jsx-dev-runtime': './jsx-dev-runtime.js',
       './jsx-runtime': './jsx-runtime.js',
     },
     name: 'react',
@@ -73,6 +74,9 @@ const writeFakeReactJsxRuntime = async (workspace: string) => {
   }, null, 2))
   await writeFile(path.join(reactFolder, 'jsx-runtime.js'), `export const jsx = (tag, props) => ({tag, props})
 export const jsxs = jsx
+export const Fragment = Symbol.for('react.fragment')
+`)
+  await writeFile(path.join(reactFolder, 'jsx-dev-runtime.js'), `export const jsxDEV = (tag, props) => ({tag, props})
 export const Fragment = Symbol.for('react.fragment')
 `)
 }
@@ -135,7 +139,7 @@ await writeFile('result.json', JSON.stringify({
       })
     }
   })
-  void it('should bundle inline TSX and local TSX imports before evaluation', async () => {
+  void it('should run inline TSX and local TSX imports before evaluation', async () => {
     const workspace = await createWorkspace()
     try {
       await writeFakeReactJsxRuntime(workspace)
@@ -168,6 +172,40 @@ await writeFile('tsx.json', JSON.stringify({
           },
           tag: 'section',
         },
+      })
+    } finally {
+      await rm(workspace, {
+        force: true,
+        recursive: true,
+      })
+    }
+  })
+  void it('should allow imports from the action image dependencies', async () => {
+    const workspace = await createWorkspace()
+    try {
+      const outputFile = path.join(workspace, 'dependencies.json')
+      await runAction(makeEnvironment({
+        INPUT_CODE: `import * as core from '@actions/core'
+import {camelCase} from 'es-toolkit'
+import fs from 'fs-extra'
+import {globby} from 'globby'
+
+await fs.writeJson('dependencies.json', {
+  camelCase: camelCase('hello world'),
+  coreGetInput: typeof core.getInput,
+  fsReadJson: typeof fs.readJson,
+  globby: typeof globby,
+})
+`,
+        GITHUB_REPOSITORY: 'Jaidlab/action-run-typescript',
+        GITHUB_RUN_ID: '1',
+        GITHUB_WORKSPACE: workspace,
+      }))
+      assert.deepEqual(JSON.parse(await readFile(outputFile, 'utf8')), {
+        camelCase: 'helloWorld',
+        coreGetInput: 'function',
+        fsReadJson: 'function',
+        globby: 'function',
       })
     } finally {
       await rm(workspace, {
@@ -224,16 +262,16 @@ await writeFile('core.json', JSON.stringify({
       await writeFile(path.join(workspace, 'value.ts'), 'export default 41\n')
       const outputFile = path.join(workspace, 'value.txt')
       await runAction(makeEnvironment({
-        INPUT_CODE: `console.log('before')
+        INPUT_CODE: `const before = 1
 import {writeFile} from 'node:fs/promises'
 import value from './value.ts'
-await writeFile('value.txt', String(value))
+await writeFile('value.txt', String(before + value))
 `,
         GITHUB_REPOSITORY: 'Jaidlab/action-run-typescript',
         GITHUB_RUN_ID: '1',
         GITHUB_WORKSPACE: workspace,
       }))
-      assert.equal(await readFile(outputFile, 'utf8'), '41')
+      assert.equal(await readFile(outputFile, 'utf8'), '42')
     } finally {
       await rm(workspace, {
         force: true,

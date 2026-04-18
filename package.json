@@ -8,24 +8,15 @@
     "type": "git",
     "url": "git+https://github.com/jaidlab/action-run-typescript.git"
   },
-  "exports": {
-    ".": {
-      "default": "./dist/action.js"
-    }
-  },
-  "imports": {
-    "#/*": "./*",
-    "#root/*": "./*",
-    "#src/*": "./src/*"
-  },
   "scripts": {
-    "build": "bun ./scripts/build.ts",
-    "test": "node --test --test-concurrency=1 ./test/*.test.ts"
+    "test": "bun test --cwd ./test"
   },
   "dependencies": {
     "@actions/core": "^3.0.0",
     "@actions/github": "^9.1.0",
-    "@rspack/core": "1.7.11",
+    "es-toolkit": "^1.45.1",
+    "fs-extra": "^11.3.4",
+    "globby": "^16.2.0",
     "json5": "^2.2.3"
   },
   "devDependencies": {

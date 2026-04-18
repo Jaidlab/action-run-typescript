@@ -1,5 +1,5 @@
 name: run TypeScript
-description: Run inline TypeScript in GitHub Actions using Node.js 24.
+description: Run inline TypeScript in GitHub Actions using Bun in a Docker container.
 author: Jaid
 inputs:
   code:
@@ -13,5 +13,5 @@ inputs:
     required: false
     default: ${{ github.token }}
 runs:
-  using: node24
-  main: dist/action.js
+  using: docker
+  image: Dockerfile

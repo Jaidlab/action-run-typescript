@@ -1,0 +1,17 @@
+# Git metadata
+.git/
+
+# Local dependencies and build output
+node_modules/
+dist/
+out/
+private/
+
+# Development-only files
+scripts/
+test/
+.editorconfig
+.gitignore
+license.txt
+readme.md
+eslint.config.ts

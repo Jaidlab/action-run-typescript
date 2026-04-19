@@ -17,8 +17,9 @@ const legacyActionRuntimeInputEnvironmentNames = [
   'ACTION_RUN_TYPESCRIPT_CODE',
   'ACTION_RUN_TYPESCRIPT_GITHUB_TOKEN',
   'ACTION_RUN_TYPESCRIPT_GLOBALS',
+  'ACTION_RUN_TYPESCRIPT_INJECT_GOODIES',
 ] as const
-const actionInputEnvironmentNames = ['INPUT_CODE', 'INPUT_GITHUB-TOKEN', 'INPUT_GLOBALS'] as const
+const actionInputEnvironmentNames = ['INPUT_CODE', 'INPUT_GITHUB-TOKEN', 'INPUT_GLOBALS', 'INPUT_INJECTGOODIES'] as const
 
 export const scrubbedEnvironmentNames = [
   ...deprecatedContextEnvironmentNames,

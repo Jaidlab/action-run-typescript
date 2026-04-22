@@ -8,10 +8,10 @@ import path from 'node:path'
 
 import * as actionCore from '@actions/core'
 import * as actionGithub from '@actions/github'
-import json5 from 'json5'
 
 import {actionRuntimeGoodieNamesText, createAllActionRuntimeGoodies, parseActionRuntimeGoodies} from './ActionRuntimeGoodie.ts'
 import {BunInlineScriptRunner} from './bun/BunInlineScriptRunner.ts'
+import {BunTemporaryDependenciesInstaller} from './bun/BunTemporaryDependenciesInstaller.ts'
 import {getEnvironmentValue, normalizeEnvironmentValue, scrubbedEnvironmentNames} from './environment.ts'
 import {getCurrentWorkflowJob} from './github/getCurrentWorkflowJob.ts'
 import {toActionRuntimeGitHubContext} from './github/toActionRuntimeGitHubContext.ts'
@@ -21,6 +21,7 @@ import {withPatchedProcessEnvironment} from './withPatchedProcessEnvironment.ts'
 
 export interface ActionRuntimeEnvironment extends Record<string, string | undefined> {
   readonly ACTION_RUN_TYPESCRIPT_CODE?: string
+  readonly ACTION_RUN_TYPESCRIPT_DEPENDENCIES?: string
   readonly ACTION_RUN_TYPESCRIPT_GITHUB_TOKEN?: string
   readonly ACTION_RUN_TYPESCRIPT_GLOBALS?: string
   readonly ACTION_RUN_TYPESCRIPT_GOODIES?: string
@@ -28,6 +29,7 @@ export interface ActionRuntimeEnvironment extends Record<string, string | undefi
   readonly GITHUB_TOKEN?: string
   readonly GITHUB_WORKSPACE?: string
   readonly INPUT_CODE?: string
+  readonly INPUT_DEPENDENCIES?: string
   readonly 'INPUT_GITHUB-TOKEN'?: string
   readonly INPUT_GLOBALS?: string
   readonly INPUT_GOODIES?: string
@@ -41,11 +43,13 @@ export interface ActionRuntimeEnvironment extends Record<string, string | undefi
 }
 
 type MutableActionRuntimeEnvironment = Record<string, string | undefined>
+type MutableActionRuntimeBindings = {-readonly [Name in keyof ActionRuntimeBindings]?: ActionRuntimeBindings[Name]}
 
 type ActionExecutionState = {
   readonly bindings: ActionRuntimeBindings
   readonly code: string
-  readonly globals: Record<string, unknown>
+  readonly dependencies?: string
+  readonly globalsSource?: string
   readonly goodies: ReadonlySet<ActionRuntimeGoodieName>
   readonly token?: string
 }
@@ -128,15 +132,17 @@ export class ActionRuntime {
   async createExecutionState(): Promise<ActionExecutionState> {
     return withPatchedProcessEnvironment(this.environment, async () => {
       const code = this.getCode()
+      const dependencies = this.getDependencies()
       const goodies = this.getGoodies()
-      const globals = this.parseGlobals()
+      const globalsSource = this.getGlobalsSource()
       const token = this.getGitHubToken()
       if (!goodies.size) {
         return {
           bindings: {},
           code,
+          dependencies,
+          globalsSource,
           goodies,
-          globals,
           token,
         }
       }
@@ -149,7 +155,7 @@ export class ActionRuntime {
         runnerName: this.getEnvironmentValue('RUNNER_NAME'),
         token,
       }) : undefined
-      const bindings: ActionRuntimeBindings = {}
+      const bindings: MutableActionRuntimeBindings = {}
       if (goodies.has('github') && github) {
         bindings.github = github
       }
@@ -174,8 +180,9 @@ export class ActionRuntime {
       return {
         bindings,
         code,
+        dependencies,
+        globalsSource,
         goodies,
-        globals,
         token,
       }
     })
@@ -193,11 +200,20 @@ export class ActionRuntime {
     return code
   }
 
+  getDependencies() {
+    const dependencies = this.getActionInput('dependencies', {trimWhitespace: false}) ?? this.getEnvironmentValue('ACTION_RUN_TYPESCRIPT_DEPENDENCIES')
+    if (dependencies === undefined || dependencies.trim() === '') {
+      return
+    }
+    return dependencies
+  }
+
   getEnvironmentValue(...names: ReadonlyArray<string>) {
     return getEnvironmentValue(this.environment, ...names)
   }
 
-  getExecutionEnvironment(token = this.getGitHubToken()) {
+  getExecutionEnvironment({dependenciesNodeModulesFolder, token}: {dependenciesNodeModulesFolder?: string
+    token?: string} = {}) {
     const executionEnvironment: MutableActionRuntimeEnvironment = {
       ...(process.env as MutableActionRuntimeEnvironment),
       ...this.environment,
@@ -208,6 +224,9 @@ export class ActionRuntime {
     if (token && !executionEnvironment.GITHUB_TOKEN) {
       executionEnvironment.GITHUB_TOKEN = token
     }
+    if (dependenciesNodeModulesFolder) {
+      executionEnvironment.NODE_PATH = appendPathListEntry(executionEnvironment.NODE_PATH, dependenciesNodeModulesFolder)
+    }
     executionEnvironment.NODE_PATH = appendPathListEntry(executionEnvironment.NODE_PATH, actionNodeModulesFolder)
     return executionEnvironment
   }
@@ -215,6 +234,14 @@ export class ActionRuntime {
   getGitHubToken() {
     return this.getActionInput('github-token', {trimWhitespace: false})
       ?? this.getEnvironmentValue('ACTION_RUN_TYPESCRIPT_GITHUB_TOKEN', 'GITHUB_TOKEN')
+  }
+
+  getGlobalsSource() {
+    const globalsSource = this.getActionInput('globals', {trimWhitespace: false}) ?? this.getEnvironmentValue('ACTION_RUN_TYPESCRIPT_GLOBALS')
+    if (globalsSource === undefined || globalsSource.trim() === '') {
+      return
+    }
+    return globalsSource
   }
 
   getGoodies() {
@@ -242,33 +269,28 @@ export class ActionRuntime {
     }
   }
 
-  parseGlobals() {
-    const rawGlobals = this.getActionInput('globals', {trimWhitespace: false}) ?? this.getEnvironmentValue('ACTION_RUN_TYPESCRIPT_GLOBALS')
-    if (rawGlobals === undefined || rawGlobals.trim() === '') {
-      return {}
-    }
-    let parsed: unknown
-    try {
-      parsed = json5.parse(rawGlobals)
-    } catch (error) {
-      throw new Error('Failed to parse action input "globals".', {cause: error})
-    }
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new TypeError('Action input "globals" must evaluate to an object.')
-    }
-    return parsed as Record<string, unknown>
-  }
-
   async run() {
     const executionState = await this.createExecutionState()
-    const runner = new BunInlineScriptRunner({
-      bindings: executionState.bindings,
-      code: executionState.code,
-      environment: this.getExecutionEnvironment(executionState.token),
-      globals: executionState.globals,
-      goodies: executionState.goodies,
-      workspace: this.workspace,
-    })
-    await runner.run()
+    const preparedDependencies = executionState.dependencies ? new BunTemporaryDependenciesInstaller({
+      environment: this.getExecutionEnvironment({token: executionState.token}),
+      rawDependencies: executionState.dependencies,
+      runnerTemp: this.getEnvironmentValue('RUNNER_TEMP'),
+    }).prepare() : undefined
+    try {
+      const runner = new BunInlineScriptRunner({
+        bindings: executionState.bindings,
+        code: executionState.code,
+        environment: this.getExecutionEnvironment({
+          dependenciesNodeModulesFolder: preparedDependencies?.nodeModulesFolder,
+          token: executionState.token,
+        }),
+        globalsSource: executionState.globalsSource,
+        goodies: executionState.goodies,
+        workspace: this.workspace,
+      })
+      await runner.run()
+    } finally {
+      preparedDependencies?.cleanup()
+    }
   }
 }

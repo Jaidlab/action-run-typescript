@@ -52,7 +52,7 @@ Bindings are assigned onto `globalThis` before your code is imported, so local m
 
 ## Passing extra globals
 
-`globals` is parsed with `json5`, so comments, trailing commas and unquoted keys are allowed. The input must evaluate to an object.
+`globals` is evaluated as a JavaScript expression and must produce an object. Plain JSON and JSON5-style object literals still work, but richer values like functions, regular expressions, `Date` instances and `undefined` are also supported.
 
 This is also the preferred way to inject workflow expression contexts that the Actions toolkit does not expose directly, such as `matrix`, `strategy` and the real `steps` context with step outputs:
 
@@ -94,7 +94,7 @@ The inline script is executed directly by Bun from the workspace root. This mean
 - relative imports behave as expected from the workspace root
 - local `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs` and `.json` files are executed natively by Bun
 - inline TSX and local TSX or JSX imports are supported
-- bare package imports resolve from the workspace first and then from the action image’s preinstalled dependencies through `NODE_PATH`
+- bare package imports resolve from the workspace first, then from temporary `dependencies`, then from the action image’s preinstalled dependencies through `NODE_PATH`
 - if `NODE_ENV` is unset, the child process defaults it to `production` before your script is imported so JSX uses `react/jsx-runtime` by default
 
 Example:
@@ -108,7 +108,22 @@ Example:
       console.dir({packageJson, component})
 ```
 
-If your code uses JSX, the corresponding runtime helpers, such as `react/jsx-runtime` or `react/jsx-dev-runtime`, must be resolvable from the workspace or from the action image.
+If your code uses JSX, the corresponding runtime helpers, such as `react/jsx-runtime` or `react/jsx-dev-runtime`, must be resolvable from the workspace, from temporary `dependencies` or from the action image.
+
+## `dependencies`
+
+If you pass `dependencies`, the action creates a fresh temporary folder, runs `bun add <your input>` there and prepends that folder’s `node_modules` to `NODE_PATH` for the inline execution.
+
+This is useful when the workflow workspace does not already contain the packages you need, or when you want a couple of throwaway helpers that should not be committed into the repository. The value is split into shell-style arguments, so forms like these work:
+
+```yml
+- uses: Jaidlab/action-run-typescript@v0.1.0
+  with:
+    dependencies: react react-dom
+    code: |-
+      import {jsx} from 'react/jsx-runtime'
+      console.log(typeof jsx)
+```
 
 ## Preinstalled packages
 
@@ -150,7 +165,7 @@ Accepted forms include:
 
 Duplicates are ignored. Unknown values fail the action.
 
-If you set `goodies: []`, no built-in goodies are injected, but the action still parses `globals` and assigns every top-level field from that object onto `globalThis`.
+If you set `goodies: []`, no built-in goodies are injected, but the action still evaluates `globals` and assigns every top-level field from that object onto `globalThis`.
 
 ## `github-token`
 

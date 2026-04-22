@@ -81,6 +81,18 @@ export const Fragment = Symbol.for('react.fragment')
 export const Fragment = Symbol.for('react.fragment')
 `)
 }
+const writePackage = async ({folder, name, source}: {folder: string
+  name: string
+  source: string}) => {
+  await mkdir(folder, {recursive: true})
+  await writeFile(path.join(folder, 'package.json'), JSON.stringify({
+    exports: './index.js',
+    name,
+    type: 'module',
+    version: '1.0.0',
+  }, null, 2))
+  await writeFile(path.join(folder, 'index.js'), source)
+}
 void describe('action-run-typescript', () => {
   void it('should run inline TypeScript with contextual bindings, globals and relative imports', async () => {
     const workspace = await createWorkspace()
@@ -111,7 +123,7 @@ await writeFile('result.json', JSON.stringify({
   customValue: 'hello',
   matrix: {node: '22'},
   steps: {prepare: {outputs: {value: '42'}}},
-  // json5 comment support
+  // JavaScript comment support
 }`,
         GITHUB_ACTION: 'test-action',
         GITHUB_JOB: 'test-job',
@@ -217,6 +229,86 @@ await fs.writeJson('dependencies.json', {
       })
     }
   })
+  void it('should install temporary dependencies through the dependencies input', async () => {
+    const workspace = await createWorkspace()
+    const firstDependencyRoot = await mkdtemp(path.join(os.tmpdir(), 'action-run-typescript dependency '))
+    const secondDependencyRoot = await mkdtemp(path.join(os.tmpdir(), 'action-run-typescript-dependency-'))
+    try {
+      const firstDependencyFolder = path.join(firstDependencyRoot, 'dependency-one')
+      const secondDependencyFolder = path.join(secondDependencyRoot, 'dependency-two')
+      await writePackage({
+        folder: firstDependencyFolder,
+        name: 'temporary-dependency-one',
+        source: 'export const value = 41\n',
+      })
+      await writePackage({
+        folder: secondDependencyFolder,
+        name: 'temporary-dependency-two',
+        source: 'export default 1\n',
+      })
+      const outputFile = path.join(workspace, 'temporary-dependencies.json')
+      await runAction(makeEnvironment({
+        INPUT_CODE: `import {writeFile} from 'node:fs/promises'
+import {value as dependencyOne} from 'temporary-dependency-one'
+import dependencyTwo from 'temporary-dependency-two'
+
+await writeFile('temporary-dependencies.json', JSON.stringify({
+  sum: dependencyOne + dependencyTwo,
+}))
+`,
+        INPUT_DEPENDENCIES: `"${toForwardSlashPath(firstDependencyFolder)}" ${toForwardSlashPath(secondDependencyFolder)}`,
+        GITHUB_REPOSITORY: 'Jaidlab/action-run-typescript',
+        GITHUB_RUN_ID: '1',
+        GITHUB_WORKSPACE: workspace,
+      }))
+      assert.deepEqual(JSON.parse(await readFile(outputFile, 'utf8')), {
+        sum: 42,
+      })
+    } finally {
+      await Promise.all([workspace, firstDependencyRoot, secondDependencyRoot].map(async folder => rm(folder, {
+        force: true,
+        recursive: true,
+      })))
+    }
+  })
+  void it('should evaluate globals as JavaScript and preserve rich values', async () => {
+    const workspace = await createWorkspace()
+    try {
+      const outputFile = path.join(workspace, 'globals-eval.json')
+      await runAction(makeEnvironment({
+        INPUT_CODE: `import {writeFile} from 'node:fs/promises'
+await writeFile('globals-eval.json', JSON.stringify({
+  dateIso: releasedAt.toISOString(),
+  helperResult: increment(41),
+  missingType: typeof missing,
+  patternMatches: pattern.test('HELLO'),
+  throughGlobalThisHelperResult: globalThis.increment(9),
+}))
+`,
+        INPUT_GLOBALS: `({
+  increment: value => value + 1,
+  missing: undefined,
+  pattern: /hello/i,
+  releasedAt: new Date('2024-04-20T12:34:56.000Z'),
+})`,
+        GITHUB_REPOSITORY: 'Jaidlab/action-run-typescript',
+        GITHUB_RUN_ID: '1',
+        GITHUB_WORKSPACE: workspace,
+      }))
+      assert.deepEqual(JSON.parse(await readFile(outputFile, 'utf8')), {
+        dateIso: '2024-04-20T12:34:56.000Z',
+        helperResult: 42,
+        missingType: 'undefined',
+        patternMatches: true,
+        throughGlobalThisHelperResult: 10,
+      })
+    } finally {
+      await rm(workspace, {
+        force: true,
+        recursive: true,
+      })
+    }
+  })
   void it('should allow selecting no built-in goodies while keeping explicit globals', async () => {
     const workspace = await createWorkspace()
     try {
@@ -284,7 +376,10 @@ await writeFile('subset-goodies.json', JSON.stringify({
   workflowJob: typeof workflowJob,
 }))
 `,
-        INPUT_GOODIES: 'core, matrix',
+        INPUT_GOODIES: `[
+  'core',
+  'matrix',
+]`,
         GITHUB_REPOSITORY: 'Jaidlab/action-run-typescript',
         GITHUB_RUN_ID: '1',
         GITHUB_WORKSPACE: workspace,

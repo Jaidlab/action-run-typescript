@@ -1,4 +1,4 @@
-import json5 from 'json5'
+import {evaluateJavaScriptExpression} from './evaluateJavaScriptExpression.ts'
 
 export const actionRuntimeGoodieNames = ['core', 'github', 'job', 'matrix', 'runner', 'steps', 'strategy', 'workflowJob'] as const
 
@@ -14,7 +14,7 @@ const parseActionRuntimeGoodieValues = (rawGoodies: string) => {
   }
   let parsed: unknown
   try {
-    parsed = json5.parse(normalizedGoodies)
+    parsed = evaluateJavaScriptExpression(normalizedGoodies)
   } catch (error) {
     throw new Error('Failed to parse action input "goodies".', {cause: error})
   }

@@ -7,11 +7,13 @@ import {mkdtempSync, rmSync, writeFileSync} from 'node:fs'
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 
+import {createSpawnEnvironment} from '../createSpawnEnvironment.ts'
+
 export interface BunInlineScriptRunnerOptions {
   readonly bindings: ActionRuntimeBindings
   readonly code: string
   readonly environment: Record<string, string | undefined>
-  readonly globals: Record<string, unknown>
+  readonly globalsSource?: string
   readonly goodies: ReadonlySet<ActionRuntimeGoodieName>
   readonly workspace: string
 }
@@ -24,10 +26,10 @@ const tsTranspiler = new Bun.Transpiler({loader: 'ts'})
 const tsxTranspiler = new Bun.Transpiler({loader: 'tsx'})
 const serializeJavaScriptValue = (value: unknown) => String(JSON.stringify(value, null, 2))
 const createBootstrapSource = ({bindings,
-  globals,
+  globalsFile,
   goodies,
   userEntryFile}: {bindings: ActionRuntimeBindings
-  globals: Record<string, unknown>
+  globalsFile?: string
   goodies: ReadonlySet<ActionRuntimeGoodieName>
   userEntryFile: string}) => {
   const lines = ['export {}']
@@ -35,14 +37,22 @@ const createBootstrapSource = ({bindings,
     lines.unshift("import * as core from '@actions/core'")
   }
   lines.push('', `process.env.NODE_ENV ||= ${JSON.stringify('production')}`)
+  if (globalsFile) {
+    lines.push('let explicitGlobals = {}')
+    lines.push('try {')
+    lines.push(`  explicitGlobals = (await import(${JSON.stringify(pathToFileURL(globalsFile).href)})).default`)
+    lines.push('} catch (error) {')
+    lines.push(`  throw new Error(${JSON.stringify('Failed to evaluate action input "globals".')}, {cause: error})`)
+    lines.push('}')
+    lines.push('if (!explicitGlobals || typeof explicitGlobals !== "object" || Array.isArray(explicitGlobals)) {')
+    lines.push(`  throw new TypeError(${JSON.stringify('Action input "globals" must evaluate to an object.')})`)
+    lines.push('}')
+  }
   const mergedExpressions = new Map<string, string>
   if (goodies.has('core')) {
     mergedExpressions.set('core', 'core')
   }
   for (const [name, value] of Object.entries(bindings)) {
-    mergedExpressions.set(name, serializeJavaScriptValue(value))
-  }
-  for (const [name, value] of Object.entries(globals)) {
     mergedExpressions.set(name, serializeJavaScriptValue(value))
   }
   const locals: Array<{localName: string
@@ -69,12 +79,21 @@ const createBootstrapSource = ({bindings,
   lines.push('    writable: true,')
   lines.push('  })')
   lines.push('}')
+  if (globalsFile) {
+    lines.push('for (const [name, value] of Object.entries(explicitGlobals)) {')
+    lines.push('  Reflect.defineProperty(globalThis, name, {')
+    lines.push('    configurable: true,')
+    lines.push('    enumerable: true,')
+    lines.push('    value,')
+    lines.push('    writable: true,')
+    lines.push('  })')
+    lines.push('}')
+  }
   lines.push(`await import(${JSON.stringify(pathToFileURL(userEntryFile).href)})`)
   lines.push('')
   return lines.join('\n')
 }
-const createSpawnEnvironment = (environment: Record<string, string | undefined>) => Object.fromEntries(Object.entries(environment)
-  .filter(([, value]) => value !== undefined)) as Record<string, string>
+const createGlobalsModuleSource = (source: string) => `export default (\n${source}\n)\n`
 const createUserEntrySource = (code: string) => `export {}\n\n${code}\n`
 const isProbablyJsxParseFailure = (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error)
@@ -124,6 +143,7 @@ export class BunInlineScriptRunner {
     const nonce = randomUUID()
     const outputFolder = mkdtempSync(path.join(this.options.workspace, '.action-run-typescript-'))
     const bootstrapFile = path.join(outputFolder, 'bootstrap.ts')
+    const globalsFile = this.options.globalsSource === undefined ? undefined : path.join(outputFolder, 'globals.mjs')
     const userEntryFile = path.join(this.options.workspace, `__action_run_typescript_inline__.${nonce}${extension}`)
     const cleanup = () => {
       rmSync(outputFolder, {
@@ -133,9 +153,12 @@ export class BunInlineScriptRunner {
       rmSync(userEntryFile, {force: true})
     }
     writeFileSync(userEntryFile, createUserEntrySource(this.options.code), 'utf8')
+    if (globalsFile) {
+      writeFileSync(globalsFile, createGlobalsModuleSource(this.options.globalsSource!), 'utf8')
+    }
     writeFileSync(bootstrapFile, createBootstrapSource({
       bindings: this.options.bindings,
-      globals: this.options.globals,
+      globalsFile,
       goodies: this.options.goodies,
       userEntryFile,
     }), 'utf8')

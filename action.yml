@@ -5,8 +5,11 @@ inputs:
   code:
     description: TypeScript code to execute.
     required: true
+  dependencies:
+    description: Optional shell-style arguments for `bun add`. They are installed in a fresh temporary folder before execution and exposed through `NODE_PATH`.
+    required: false
   globals:
-    description: Optional JSON5 object. Each top-level field becomes a global variable before your TypeScript runs.
+    description: Optional JavaScript expression that must evaluate to an object. Each top-level field becomes a global variable before your TypeScript runs.
     required: false
   goodies:
     description: Optional built-in goodies set. Accepts names like `core`, `core, github`, `['core', 'github']` or `[]` for none.

@@ -179,7 +179,7 @@ jobs:
         for (const expectedPath of ['usr/local/bin/bun', 'action/package.json', 'action/src/main.ts']) {
           assertHasFile(expectedPath)
         }
-        assert.ok(filePathList.some(path => path === 'action/node_modules/json5' || path.startsWith('action/node_modules/json5/') || /action\/node_modules\/\.bun\/[^/]+\/node_modules\/json5(?:\/|$)/.test(path)), 'Expected json5 to be installed in the image.')
+        assert.ok(filePathList.some(path => path === 'action/node_modules/globby' || path.startsWith('action/node_modules/globby/') || /action\/node_modules\/\.bun\/[^/]+\/node_modules\/globby(?:\/|$)/.test(path)), 'Expected globby to be installed in the image.')
         assert.ok(!filePaths.has('action/dist/action.js'), 'Did not expect dist/action.js in the runtime image.')
 
         console.log(JSON.stringify({

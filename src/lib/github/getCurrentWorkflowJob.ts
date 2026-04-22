@@ -41,7 +41,7 @@ export interface GetCurrentWorkflowJobOptions {
 interface ListWorkflowJobsResponse {
   readonly jobs?: ReadonlyArray<WorkflowJob>
 }
-const listWorkflowJobs = async ({fetch: fetchImplementation = fetch as FetchImplementation, github, token}: GetCurrentWorkflowJobOptions) => {
+const listWorkflowJobs = async ({fetch: fetchImplementation = fetch, github, token}: GetCurrentWorkflowJobOptions) => {
   const repository = github.repository
   const runId = github.run_id
   if (!repository || !runId || !token) {

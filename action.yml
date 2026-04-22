@@ -8,10 +8,10 @@ inputs:
   globals:
     description: Optional JSON5 object. Each top-level field becomes a global variable before your TypeScript runs.
     required: false
-  injectGoodies:
-    description: If true, inject built-in goodies like core, github, job, matrix, runner, steps, strategy and workflowJob.
+  goodies:
+    description: Optional built-in goodies set. Accepts names like `core`, `core, github`, `['core', 'github']` or `[]` for none.
     required: false
-    default: 'true'
+    default: core, github, job, matrix, runner, steps, strategy, workflowJob
   github-token:
     description: GitHub token used for best-effort workflow job step lookup.
     required: false

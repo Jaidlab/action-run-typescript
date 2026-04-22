@@ -1,4 +1,5 @@
 import type {ActionRuntimeBindings} from '../ActionRuntimeBindings.ts'
+import type {ActionRuntimeGoodieName} from '../ActionRuntimeGoodie.ts'
 
 import {spawn} from 'node:child_process'
 import {randomUUID} from 'node:crypto'
@@ -11,6 +12,7 @@ export interface BunInlineScriptRunnerOptions {
   readonly code: string
   readonly environment: Record<string, string | undefined>
   readonly globals: Record<string, unknown>
+  readonly goodies: ReadonlySet<ActionRuntimeGoodieName>
   readonly workspace: string
 }
 
@@ -23,11 +25,20 @@ const tsxTranspiler = new Bun.Transpiler({loader: 'tsx'})
 const serializeJavaScriptValue = (value: unknown) => String(JSON.stringify(value, null, 2))
 const createBootstrapSource = ({bindings,
   globals,
+  goodies,
   userEntryFile}: {bindings: ActionRuntimeBindings
   globals: Record<string, unknown>
+  goodies: ReadonlySet<ActionRuntimeGoodieName>
   userEntryFile: string}) => {
-  const lines = ['export {}', '', `process.env.NODE_ENV ||= ${JSON.stringify('production')}`]
+  const lines = ['export {}']
+  if (goodies.has('core')) {
+    lines.unshift("import * as core from '@actions/core'")
+  }
+  lines.push('', `process.env.NODE_ENV ||= ${JSON.stringify('production')}`)
   const mergedExpressions = new Map<string, string>
+  if (goodies.has('core')) {
+    mergedExpressions.set('core', 'core')
+  }
   for (const [name, value] of Object.entries(bindings)) {
     mergedExpressions.set(name, serializeJavaScriptValue(value))
   }
@@ -125,6 +136,7 @@ export class BunInlineScriptRunner {
     writeFileSync(bootstrapFile, createBootstrapSource({
       bindings: this.options.bindings,
       globals: this.options.globals,
+      goodies: this.options.goodies,
       userEntryFile,
     }), 'utf8')
     return {

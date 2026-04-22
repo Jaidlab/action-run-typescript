@@ -12,6 +12,7 @@ import {toForwardSlashPath} from '../src/lib/toForwardSlashPath.ts'
 import runAction from '../src/main.ts'
 
 interface ScriptResult {
+  readonly coreInfo: string
   readonly currentWorkingDirectory: string
   readonly customValue: string
   readonly githubAction: string
@@ -92,6 +93,7 @@ void describe('action-run-typescript', () => {
 import packageJson from './package.json'
 import value from './value.ts'
 await writeFile('result.json', JSON.stringify({
+  coreInfo: typeof core.info,
   currentWorkingDirectory: process.cwd(),
   customValue,
   githubAction: github.action,
@@ -120,6 +122,7 @@ await writeFile('result.json', JSON.stringify({
       }))
       const result = JSON.parse(await readFile(outputFile, 'utf8')) as ScriptResult
       assert.deepEqual(result, {
+        coreInfo: 'function',
         currentWorkingDirectory: path.normalize(workspace),
         customValue: 'hello',
         githubAction: 'test-action',
@@ -214,24 +217,87 @@ await fs.writeJson('dependencies.json', {
       })
     }
   })
-  void it('should not inject core as a global', async () => {
+  void it('should allow selecting no built-in goodies while keeping explicit globals', async () => {
     const workspace = await createWorkspace()
     try {
-      const outputFile = path.join(workspace, 'core.json')
+      const outputFile = path.join(workspace, 'goodies.json')
       await runAction(makeEnvironment({
         INPUT_CODE: `import {writeFile} from 'node:fs/promises'
-await writeFile('core.json', JSON.stringify({
-  direct: typeof core,
-  throughGlobalThis: typeof globalThis.core,
+await writeFile('goodies.json', JSON.stringify({
+  core: typeof core,
+  github: typeof github,
+  job: typeof job,
+  matrix: typeof matrix,
+  runner: typeof runner,
+  steps: typeof steps,
+  strategy: typeof strategy,
+  workflowJob: typeof workflowJob,
+  throughGlobalThisCore: typeof globalThis.core,
+  throughGlobalThisGithub: typeof globalThis.github,
+  customValue,
+  throughGlobalThisCustomValue: globalThis.customValue,
 }))
 `,
+        INPUT_GLOBALS: `{
+  customValue: 'hello',
+}`,
+        INPUT_GOODIES: '[]',
         GITHUB_REPOSITORY: 'Jaidlab/action-run-typescript',
         GITHUB_RUN_ID: '1',
         GITHUB_WORKSPACE: workspace,
       }))
       assert.deepEqual(JSON.parse(await readFile(outputFile, 'utf8')), {
-        direct: 'undefined',
-        throughGlobalThis: 'undefined',
+        core: 'undefined',
+        github: 'undefined',
+        job: 'undefined',
+        matrix: 'undefined',
+        runner: 'undefined',
+        steps: 'undefined',
+        strategy: 'undefined',
+        workflowJob: 'undefined',
+        throughGlobalThisCore: 'undefined',
+        throughGlobalThisGithub: 'undefined',
+        customValue: 'hello',
+        throughGlobalThisCustomValue: 'hello',
+      })
+    } finally {
+      await rm(workspace, {
+        force: true,
+        recursive: true,
+      })
+    }
+  })
+  void it('should allow selecting a subset of built-in goodies', async () => {
+    const workspace = await createWorkspace()
+    try {
+      const outputFile = path.join(workspace, 'subset-goodies.json')
+      await runAction(makeEnvironment({
+        INPUT_CODE: `import {writeFile} from 'node:fs/promises'
+await writeFile('subset-goodies.json', JSON.stringify({
+  coreInfo: typeof core.info,
+  github: typeof github,
+  job: typeof job,
+  matrix: typeof matrix,
+  runner: typeof runner,
+  steps: typeof steps,
+  strategy: typeof strategy,
+  workflowJob: typeof workflowJob,
+}))
+`,
+        INPUT_GOODIES: 'core, matrix',
+        GITHUB_REPOSITORY: 'Jaidlab/action-run-typescript',
+        GITHUB_RUN_ID: '1',
+        GITHUB_WORKSPACE: workspace,
+      }))
+      assert.deepEqual(JSON.parse(await readFile(outputFile, 'utf8')), {
+        coreInfo: 'function',
+        github: 'undefined',
+        job: 'undefined',
+        matrix: 'object',
+        runner: 'undefined',
+        steps: 'undefined',
+        strategy: 'undefined',
+        workflowJob: 'undefined',
       })
     } finally {
       await rm(workspace, {

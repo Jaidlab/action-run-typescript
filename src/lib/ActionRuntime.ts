@@ -1,4 +1,5 @@
 import type {ActionRuntimeBindings} from './ActionRuntimeBindings.ts'
+import type {ActionRuntimeGoodieName} from './ActionRuntimeGoodie.ts'
 import type {WorkflowJob} from './github/getCurrentWorkflowJob.ts'
 import type {ToolkitGitHubContext} from './github/toActionRuntimeGitHubContext.ts'
 import type {InputOptions} from '@actions/core'
@@ -9,6 +10,7 @@ import * as actionCore from '@actions/core'
 import * as actionGithub from '@actions/github'
 import json5 from 'json5'
 
+import {actionRuntimeGoodieNamesText, createAllActionRuntimeGoodies, parseActionRuntimeGoodies} from './ActionRuntimeGoodie.ts'
 import {BunInlineScriptRunner} from './bun/BunInlineScriptRunner.ts'
 import {getEnvironmentValue, normalizeEnvironmentValue, scrubbedEnvironmentNames} from './environment.ts'
 import {getCurrentWorkflowJob} from './github/getCurrentWorkflowJob.ts'
@@ -21,12 +23,14 @@ export interface ActionRuntimeEnvironment extends Record<string, string | undefi
   readonly ACTION_RUN_TYPESCRIPT_CODE?: string
   readonly ACTION_RUN_TYPESCRIPT_GITHUB_TOKEN?: string
   readonly ACTION_RUN_TYPESCRIPT_GLOBALS?: string
+  readonly ACTION_RUN_TYPESCRIPT_GOODIES?: string
   readonly ACTION_RUN_TYPESCRIPT_INJECT_GOODIES?: string
   readonly GITHUB_TOKEN?: string
   readonly GITHUB_WORKSPACE?: string
   readonly INPUT_CODE?: string
   readonly 'INPUT_GITHUB-TOKEN'?: string
   readonly INPUT_GLOBALS?: string
+  readonly INPUT_GOODIES?: string
   readonly INPUT_INJECTGOODIES?: string
   readonly NODE_PATH?: string
   readonly RUNNER_ARCH?: string
@@ -42,13 +46,12 @@ type ActionExecutionState = {
   readonly bindings: ActionRuntimeBindings
   readonly code: string
   readonly globals: Record<string, unknown>
-  readonly injectGoodies: boolean
+  readonly goodies: ReadonlySet<ActionRuntimeGoodieName>
   readonly token?: string
 }
 
 const falseBooleanInputValues = ['false', 'False', 'FALSE'] as const
 const trueBooleanInputValues = ['true', 'True', 'TRUE'] as const
-
 const actionRootFolder = path.resolve(import.meta.dirname, '../..')
 const actionNodeModulesFolder = path.join(actionRootFolder, 'node_modules')
 const appendPathListEntry = (value: string | undefined, entry: string) => {
@@ -59,6 +62,17 @@ const appendPathListEntry = (value: string | undefined, entry: string) => {
 const createToolkitGitHubContext = () => {
   const GitHubContext = actionGithub.context.constructor as new () => ToolkitGitHubContext
   return new GitHubContext
+}
+const hasAnyActionRuntimeGoodie = (goodies: ReadonlySet<ActionRuntimeGoodieName>, names: ReadonlyArray<ActionRuntimeGoodieName>) => names.some(name => goodies.has(name))
+const parseLegacyInjectGoodies = (rawInjectGoodies: string) => {
+  const normalizedInjectGoodies = rawInjectGoodies.trim()
+  if (trueBooleanInputValues.includes(normalizedInjectGoodies as typeof trueBooleanInputValues[number])) {
+    return createAllActionRuntimeGoodies()
+  }
+  if (falseBooleanInputValues.includes(normalizedInjectGoodies as typeof falseBooleanInputValues[number])) {
+    return new Set<ActionRuntimeGoodieName>
+  }
+  throw new TypeError(`Legacy action input "injectGoodies" must be a boolean. Supported values: true, True, TRUE, false, False and FALSE. Use action input "goodies" with any combination of ${actionRuntimeGoodieNamesText}, or [] for none.`)
 }
 const resolveRunnerOperatingSystem = () => {
   const platform = actionCore.platform
@@ -114,38 +128,54 @@ export class ActionRuntime {
   async createExecutionState(): Promise<ActionExecutionState> {
     return withPatchedProcessEnvironment(this.environment, async () => {
       const code = this.getCode()
+      const goodies = this.getGoodies()
       const globals = this.parseGlobals()
-      const injectGoodies = this.getInjectGoodies()
       const token = this.getGitHubToken()
-      if (!injectGoodies) {
+      if (!goodies.size) {
         return {
           bindings: {},
           code,
+          goodies,
           globals,
-          injectGoodies,
           token,
         }
       }
-      const toolkitGitHubContext = createToolkitGitHubContext()
-      const github = toActionRuntimeGitHubContext(toolkitGitHubContext, token)
-      const workflowJob = await getCurrentWorkflowJob({
+      const needsGitHubContext = hasAnyActionRuntimeGoodie(goodies, ['github', 'job', 'steps', 'workflowJob'])
+      const toolkitGitHubContext = needsGitHubContext ? createToolkitGitHubContext() : undefined
+      const github = toolkitGitHubContext ? toActionRuntimeGitHubContext(toolkitGitHubContext, token) : undefined
+      const needsWorkflowJob = hasAnyActionRuntimeGoodie(goodies, ['job', 'steps', 'workflowJob'])
+      const workflowJob = needsWorkflowJob && github ? await getCurrentWorkflowJob({
         github,
         runnerName: this.getEnvironmentValue('RUNNER_NAME'),
         token,
-      })
+      }) : undefined
+      const bindings: ActionRuntimeBindings = {}
+      if (goodies.has('github') && github) {
+        bindings.github = github
+      }
+      if (goodies.has('job')) {
+        bindings.job = toJobContext(toolkitGitHubContext?.job, workflowJob)
+      }
+      if (goodies.has('matrix')) {
+        bindings.matrix = {}
+      }
+      if (goodies.has('runner')) {
+        bindings.runner = this.getRunnerContext()
+      }
+      if (goodies.has('steps')) {
+        bindings.steps = workflowJob ? toWorkflowStepsFallback(workflowJob) : {}
+      }
+      if (goodies.has('strategy')) {
+        bindings.strategy = {}
+      }
+      if (goodies.has('workflowJob')) {
+        bindings.workflowJob = workflowJob ?? null
+      }
       return {
-        bindings: {
-          github,
-          job: toJobContext(toolkitGitHubContext.job, workflowJob),
-          matrix: {},
-          runner: this.getRunnerContext(),
-          steps: workflowJob ? toWorkflowStepsFallback(workflowJob) : {},
-          strategy: {},
-          workflowJob: workflowJob ?? null,
-        },
+        bindings,
         code,
+        goodies,
         globals,
-        injectGoodies,
         token,
       }
     })
@@ -187,20 +217,18 @@ export class ActionRuntime {
       ?? this.getEnvironmentValue('ACTION_RUN_TYPESCRIPT_GITHUB_TOKEN', 'GITHUB_TOKEN')
   }
 
-  getInjectGoodies() {
+  getGoodies() {
+    const rawGoodies = this.getActionInput('goodies', {trimWhitespace: false})
+      ?? this.getEnvironmentValue('ACTION_RUN_TYPESCRIPT_GOODIES')
+    if (rawGoodies !== undefined) {
+      return parseActionRuntimeGoodies(rawGoodies)
+    }
     const rawInjectGoodies = this.getActionInput('injectGoodies')
       ?? this.getEnvironmentValue('ACTION_RUN_TYPESCRIPT_INJECT_GOODIES')
-    if (rawInjectGoodies === undefined) {
-      return true
+    if (rawInjectGoodies !== undefined) {
+      return parseLegacyInjectGoodies(rawInjectGoodies)
     }
-    const normalizedInjectGoodies = rawInjectGoodies.trim()
-    if (trueBooleanInputValues.includes(normalizedInjectGoodies as typeof trueBooleanInputValues[number])) {
-      return true
-    }
-    if (falseBooleanInputValues.includes(normalizedInjectGoodies as typeof falseBooleanInputValues[number])) {
-      return false
-    }
-    throw new TypeError('Action input "injectGoodies" must be a boolean. Supported values: true, True, TRUE, false, False and FALSE.')
+    return createAllActionRuntimeGoodies()
   }
 
   getRunnerContext() {
@@ -238,7 +266,7 @@ export class ActionRuntime {
       code: executionState.code,
       environment: this.getExecutionEnvironment(executionState.token),
       globals: executionState.globals,
-      injectCore: executionState.injectGoodies,
+      goodies: executionState.goodies,
       workspace: this.workspace,
     })
     await runner.run()

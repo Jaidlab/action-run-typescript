@@ -23,6 +23,7 @@ jobs:
 
           await mkdir('out', {recursive: true})
           await Bun.write('out/action-self-test.json', JSON.stringify({
+            coreInfoType: typeof core.info,
             currentWorkingDirectory: process.cwd(),
             expectedWorkspace: process.env.GITHUB_WORKSPACE,
             globbyType: typeof globby,
@@ -39,6 +40,7 @@ jobs:
         const output = JSON.parse(fs.readFileSync('out/action-self-test.json', 'utf8'))
 
         assert.ok(output.expectedWorkspace, 'Expected GITHUB_WORKSPACE to be set.')
+        assert.equal(output.coreInfoType, 'function')
         assert.equal(output.currentWorkingDirectory, output.expectedWorkspace)
         assert.equal(output.globbyType, 'function')
         assert.equal(output.packageName, 'action-run-typescript')

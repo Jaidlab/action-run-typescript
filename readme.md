@@ -26,6 +26,7 @@ jobs:
             console.log('hi')
             console.dir({
               answer,
+              coreInfo: typeof core.info,
               github,
               matrix,
               runner,
@@ -34,8 +35,9 @@ jobs:
 
 ## Available bindings
 
-Your inline code runs in a dedicated Bun child process from the workflow workspace root. These bindings are available without importing anything:
+By default, `goodies` contains every built-in name, so your inline code runs in a dedicated Bun child process from the workflow workspace root with these bindings available without importing anything:
 
+- `core` – the imported `@actions/core` module
 - `github` – a best-effort GitHub context built from `@actions/github.context`, plus compatibility aliases like `github.repository`, `github.run_id`, `github.event` and `github.repo`
 - `job` – a best-effort job context. It always includes `job.id` from `GITHUB_JOB` and may also include `name`, `status`, `conclusion`, `workflow_job_id`, `workflowJobId` and `url`
 - `runner` – a best-effort runner context built from runner environment variables and `@actions/core.platform`
@@ -43,10 +45,10 @@ Your inline code runs in a dedicated Bun child process from the workflow workspa
 - `strategy` – `{}` by default
 - `steps` – `{}` by default or a best-effort fallback derived from the workflow jobs API
 - `workflowJob` – best-effort metadata for the current workflow job, including its step list when available
-- every top-level field from `with.globals` – these are assigned after the built-in bindings, so they can override names like `matrix`, `strategy` or `steps`
+- every top-level field from `with.globals` – these are assigned after the built-in bindings, so they can override names like `core`, `matrix`, `strategy` or `steps`
 - standard Bun, Node and web globals such as `Bun`, `fetch`, `console`, `process`, `Buffer`, `URL` and friends
 
-Bindings are assigned onto `globalThis` before your code is imported, so local modules can use either bare identifiers like `matrix` or explicit access like `globalThis.matrix`.
+Bindings are assigned onto `globalThis` before your code is imported, so local modules can use either bare identifiers like `matrix` or explicit access like `globalThis.matrix`. Use `goodies: []` to skip the built-in goodies injection entirely, or pass a subset like `goodies: core, matrix` to inject only specific goodies. Explicit `with.globals` values are still assigned in every mode.
 
 ## Passing extra globals
 
@@ -127,11 +129,28 @@ import {globby} from 'globby'
 
 ## Using `@actions/core`
 
-`@actions/core` is not injected as a global. If you want it, import it explicitly from your script:
+`core` is injected as a global by default because the default `goodies` set includes `core`. You can still import `@actions/core` explicitly from your script if you prefer that style, or if you omit `core` from `goodies`:
 
 ```ts
 import * as core from '@actions/core'
 ```
+
+## `goodies`
+
+`goodies` selects which built-in goodies are injected. Supported names are `core`, `github`, `job`, `matrix`, `runner`, `steps`, `strategy` and `workflowJob`.
+
+By default, `goodies` contains all of them.
+
+Accepted forms include:
+
+- `goodies: core`
+- `goodies: core, github, matrix`
+- `goodies: ['core', 'github', 'matrix']`
+- `goodies: []`
+
+Duplicates are ignored. Unknown values fail the action.
+
+If you set `goodies: []`, no built-in goodies are injected, but the action still parses `globals` and assigns every top-level field from that object onto `globalThis`.
 
 ## `github-token`
 
